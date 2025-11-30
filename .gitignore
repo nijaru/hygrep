@@ -1,0 +1,25 @@
+# Mojo / Magic
+.magic/
+.pixi/
+build/
+.build/
+
+# Python
+__pycache__/
+*.pyc
+
+# Models
+models/*.onnx
+*.onnx
+
+# OS
+.DS_Store
+
+# Agent Context
+ai/tmp/
+
+# pixi environments
+.pixi
+*.egg-info
+# magic environments
+.magic

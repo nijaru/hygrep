@@ -1,0 +1,16 @@
+[workspace]
+name = "hgrep"
+version = "0.1.0"
+description = "Agent-Native search tool"
+authors = ["Your Name <you@example.com>"]
+channels = ["conda-forge", "https://conda.modular.com/max-nightly/"]
+platforms = ["osx-arm64", "linux-64"]
+
+[dependencies]
+max = "*"
+python = ">=3.11,<3.14"
+
+[tasks]
+build = "mojo build src/main.mojo -o hygrep"
+run = "mojo src/main.mojo"
+test = "mojo test tests"
