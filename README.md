@@ -2,26 +2,29 @@
 
 > **The Hybrid Search CLI: `grep` speed, LLM intelligence.**
 
-`hygrep` is a next-generation command-line search tool designed for the AI era. It combines the instant performance of regex-based directory scanning with the semantic understanding of local Large Language Models (LLMs).
+`hygrep` is a next-generation command-line search tool designed for developers and AI agents alike. It combines the instant performance of regex-based directory scanning with the semantic understanding of local Large Language Models (LLMs).
 
 **Zero Setup. Zero Indexing. Local Inference.**
 
-## Overview
+## Why HyperGrep?
 
-Traditional search tools force a tradeoff:
-*   **`grep`/`ripgrep`:** Fast (<50ms), but limited to literal string matches.
-*   **Vector Databases:** Semantic understanding, but require heavy indexing, storage management, and background services.
+Traditional tools force you to choose:
+*   **`grep`:** Fast, but dumb. It only finds exact text matches.
+*   **AI Search:** Smart, but slow. It usually requires you to wait for "indexing" before you can search anything.
 
-**HyperGrep** bridges this gap using a **Recall -> Rerank** architecture:
-1.  **Hyper Scanner (Recall):** Instantly finds candidate files using high-performance parallel regex (like `ripgrep`).
-2.  **The Brain (Rerank):** Uses a local Cross-Encoder model (via MAX Engine) to semantically score candidates against your query.
+**HyperGrep gives you both:**
+1.  **It scans fast:** We use a high-performance scanner to find files that *might* match your query (using keywords/regex).
+2.  **It thinks smart:** We use a local AI model to read those files and rank them by how well they actually answer your question.
+
+**No database. No waiting for indexing. Just run it.**
 
 ## Features
 
+*   **Human Friendly:** You get the speed of a CLI tool with the intelligence of an AI assistant.
 *   **Hybrid Search:** Seamlessly blends keyword matching with semantic understanding.
-*   **Agent Native:** Implements the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) to serve as a structured tool for AI agents (Claude, IDEs).
-*   **Local & Private:** All inference runs locally on your hardware (CPU/GPU). No data leaves your machine.
-*   **Single Binary:** Built in Mojo for native performance without Python runtime dependencies.
+*   **Agent Ready:** Can also act as a tool for AI agents (like Claude) to search your codebase.
+*   **Local & Private:** All AI runs locally on your machine. Your code never leaves your laptop.
+*   **Single Binary:** Easy to install, no Python dependencies required.
 
 ## Installation
 
