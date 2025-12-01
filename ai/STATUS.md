@@ -2,15 +2,15 @@
 | Metric | Value | Updated |
 |--------|-------|---------|
 | Phase | 2 (Optimization) | 2025-11-30 |
-| Status | Stable (Native Regex) | 2025-11-30 |
-| Perf | Fast (C Regex) | 2025-11-30 |
+| Status | Stable (Native Regex + Parallel) | 2025-11-30 |
+| Perf | Fast (Parallel C Regex) | 2025-11-30 |
 | Mojo | v0.25.7 (Stable) | 2025-11-30 |
 
 ## Active Work
-Optimization (Parallelism).
+Benchmarking.
 
 ## Accomplished
-- **Stable Mojo:** Switched to v0.25.7 and updated `pixi.toml`.
-- **Native Regex:** Implemented `src/scanner/c_regex.mojo` using `libc` binding (Int-cast pattern).
-- **Refactor:** Renamed `src/brain` to `src/inference`.
-- **Testing:** Configured `pixi run test` using `TestSuite` (v0.25.7 standard).
+- **Stable Mojo:** Switched to v0.25.7.
+- **Native Regex:** Implemented `src/scanner/c_regex.mojo` using `libc`.
+- **Parallel Scanner:** Implemented parallel file scanning in `src/scanner/walker.mojo` using `algorithm.parallelize` and `UnsafePointer` for result masking.
+- **Testing:** Added `tests/test_regex_smoke.mojo` and `tests/test_walker.mojo`.
