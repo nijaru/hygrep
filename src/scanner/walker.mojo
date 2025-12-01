@@ -1,6 +1,6 @@
 from pathlib import Path
 from collections import List
-from src.scanner.py_regex import Regex
+from src.scanner.c_regex import Regex
 
 fn scan_file(file: Path, re: Regex) -> Bool:
     try:
