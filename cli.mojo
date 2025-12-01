@@ -1,4 +1,5 @@
 from src.scanner.walker import hyper_scan
+from src.brain.reranker import Reranker
 from pathlib import Path
 import sys
 
@@ -14,14 +15,25 @@ fn main() raises:
     
     print("HyperGrep: Searching for '" + pattern + "' in " + path_str)
     
-    try:
-        var matches = hyper_scan(root, pattern)
-        
-        print("\n--- Results ---")
-        for i in range(len(matches)):
-            print(matches[i])
-            
-        print("\nFound " + String(len(matches)) + " matches.")
-    except e:
-        print("Error: " + String(e))
+    # 1. Recall (Scanner)
+    var matches = hyper_scan(root, pattern)
+    print("Recall: Found " + String(len(matches)) + " candidates.")
+    
+    if len(matches) == 0:
+        return
 
+    # 2. Rerank (Brain)
+    print("Reranking...")
+    var brain = Reranker()
+    
+    var match_strings = List[String]()
+    for i in range(len(matches)):
+        match_strings.append(String(matches[i]))
+        
+    var ranked_indices = brain.rerank(pattern, match_strings)
+    
+    print("\n--- Top Results ---")
+    # Print top 10
+    for i in range(min(10, len(ranked_indices))):
+        var idx = ranked_indices[i]
+        print(match_strings[idx])

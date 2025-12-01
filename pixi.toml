@@ -3,14 +3,18 @@ name = "hgrep"
 version = "0.1.0"
 description = "Agent-Native search tool"
 authors = ["Your Name <you@example.com>"]
-channels = ["conda-forge", "https://conda.modular.com/max-nightly/"]
+channels = ["conda-forge", "https://conda.modular.com/max-nightly/", "pytorch"]
 platforms = ["osx-arm64", "linux-64"]
 
 [dependencies]
 max = "*"
 python = ">=3.11,<3.14"
+huggingface_hub = ">=1.1.6,<2"
+numpy = ">=2.3.5,<3"
+tokenizers = ">=0.22.1,<0.23"
+onnxruntime = ">=1.16.0,<2"
 
 [tasks]
-build = "mojo build src/main.mojo -o hygrep"
-run = "mojo src/main.mojo"
+build = "mojo build cli.mojo -o hygrep"
+run = "mojo cli.mojo"
 test = "mojo test tests"

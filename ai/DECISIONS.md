@@ -14,19 +14,19 @@
 - **Pure Grep:** Rejected (No semantic understanding).
 **Rationale:**
 - **Recall:** "Hyper Scanner" finds candidates.
+    - *Note:* Can be enhanced with **Query Expansion** (LLM generates synonyms) to catch "auth" when searching "login".
 - **Rerank:** "The Brain" scores them.
-- **UX:** Single entry point. The tool determines the best strategy or always runs hybrid.
+- **UX:** Single entry point.
 
 ## 3. Interface (UX)
 **Decision:** Single "Magic" Command
 - **Command:** `hygrep "query"`
-- **Behavior:** The tool automatically performs Recall -> Rerank. No `--smart` flag required for standard semantic behavior.
-- **Flags:** Optional flags for specific overrides (e.g., `--literal` to force pure grep speed), but the default is "Best Result".
+- **Behavior:** The tool automatically performs Recall -> Rerank.
+- **Flags:** Optional flags for specific overrides.
 
 ## 4. Model Selection
 **Decision:** Tiered Strategy
-- **Default:** `Qwen3-Reranker-0.6B`.
-- **Code Fallback:** `bge-reranker-v2-m3`.
+- **Default:** `mixedbread-ai/mxbai-rerank-xsmall-v1`.
 - **Format:** ONNX (Quantized).
 
 ## 5. Protocol
