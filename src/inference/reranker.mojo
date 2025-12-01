@@ -1,86 +1,65 @@
 from python import Python, PythonObject
 from collections import List
+from pathlib import Path
 
 struct Reranker:
-    var _tokenizer: PythonObject
-    var _session: PythonObject
+    var _bridge: PythonObject
     var _initialized: Bool
 
     fn __init__(out self) raises:
         self._initialized = False
-        self._tokenizer = PythonObject(None)
-        self._session = PythonObject(None)
+        self._bridge = PythonObject(None)
         
         try:
             var sys = Python.import_module("sys")
             var os = Python.import_module("os")
             
-            if "src/inference" not in String(sys.path):
-                sys.path.append("src/inference")            
+            # Ensure current directory is in python path so we can import src.inference.bridge
             var current_dir = String(os.getcwd())
-            var pixi_site_packages = current_dir + "/.pixi/envs/default/lib/python3.11/site-packages"
+            sys.path.append(current_dir)
             
-            if os.path.exists(pixi_site_packages):
-                sys.path.append(pixi_site_packages)
+            # Add pixi site-packages
+            var py_versions = List[String]()
+            py_versions.append("3.13")
+            py_versions.append("3.12")
+            py_versions.append("3.11")
             
-            var ort = Python.import_module("onnxruntime")
-            var tok_mod = Python.import_module("tokenizer_wrapper")
+            for i in range(len(py_versions)):
+                var v = py_versions[i]
+                var site = current_dir + "/.pixi/envs/default/lib/python" + v + "/site-packages"
+                if os.path.exists(site):
+                    sys.path.append(site)
+                    break
+            
+            self._bridge = Python.import_module("src.inference.bridge")
             
             var model_path = "models/reranker.onnx"
             var tokenizer_path = "models/tokenizer.json"
             
-            self._tokenizer = tok_mod.RerankTokenizer(tokenizer_path)
-            self._session = ort.InferenceSession(model_path)
+            self._bridge.init_searcher(model_path, tokenizer_path)
             self._initialized = True
         except e:
-            print("Failed to initialize Brain: " + String(e))
+            print("Failed to initialize Smart Searcher: " + String(e))
 
-    fn rerank(self, query: String, candidates: List[String]) raises -> List[Int]:
-        if not self._initialized or len(candidates) == 0:
-            var indices = List[Int]()
-            for i in range(len(candidates)):
-                indices.append(i)
-            return indices^
-
-        var py_candidates = Python.evaluate("[]")
-        for i in range(len(candidates)):
-            _ = py_candidates.append(candidates[i])
+    fn search_raw(self, query: String, files: List[Path]) raises -> String:
+        """
+        Returns the raw JSON string result from the bridge.
+        """
+        if not self._initialized:
+            return "[]"
             
-        var inputs_tuple = self._tokenizer.prepare_inputs(query, py_candidates)
-        
-        var feed_dict = Python.evaluate("{}")
-        var input_names = self._get_input_names()
-        
-        if len(input_names) >= 1:
-            feed_dict[input_names[0]] = inputs_tuple[0]
-        if len(input_names) >= 2:
-            feed_dict[input_names[1]] = inputs_tuple[1]
-        if len(input_names) >= 3:
-            feed_dict[input_names[2]] = inputs_tuple[2]
+        var py_files = Python.evaluate("[]")
+        for i in range(len(files)):
+            _ = py_files.append(String(files[i]))
             
-        var res = self._session.run(PythonObject(None), feed_dict)
-        
-        var logits = res[0]
-        var scores = logits.flatten().tolist()
-        
-        return self._argsort(scores)
+        var json_str = self._bridge.run_search(query, py_files)
+        return String(json_str)
 
-    fn _get_input_names(self) raises -> List[String]:
-        var names = List[String]()
-        var inputs = self._session.get_inputs()
-        var length = Int(len(inputs))
-        for i in range(length):
-            names.append(String(inputs[i].name))
-        return names^
-
-    fn _argsort(self, scores: PythonObject) raises -> List[Int]:
-        var np = Python.import_module("numpy")
-        var indices_py = np.argsort(scores)
-        
-        var result = List[Int]()
-        var length = Int(len(indices_py))
-        for i in range(length):
-            var idx = Int(indices_py[length - 1 - i])
-            result.append(idx)
-            
-        return result^
+    fn search(self, query: String, files: List[Path]) raises -> PythonObject:
+        """
+        Executes the smart search pipeline via Python bridge.
+        Returns a Python List of Dicts.
+        """
+        var json_str = self.search_raw(query, files)
+        var json = Python.import_module("json")
+        return json.loads(json_str)

@@ -1,16 +1,26 @@
 ## Current State
 | Metric | Value | Updated |
 |--------|-------|---------|
-| Phase | 2 (Optimization) | 2025-11-30 |
-| Status | Stable (Native Regex + Parallel) | 2025-11-30 |
-| Perf | Fast (Parallel C Regex) | 2025-11-30 |
-| Mojo | v0.25.7 (Stable) | 2025-11-30 |
+| Phase | 5 (Maintenance) | 2025-12-01 |
+| Status | Stable / Complete | 2025-12-01 |
+| Perf | ~19k files/sec (Recall) | 2025-12-01 |
+| Mojo | v0.25.7 (Stable) | 2025-12-01 |
 
 ## Active Work
-Benchmarking.
+None. Project is feature complete for MVP+.
 
 ## Accomplished
-- **Stable Mojo:** Switched to v0.25.7.
-- **Native Regex:** Implemented `src/scanner/c_regex.mojo` using `libc`.
-- **Parallel Scanner:** Implemented parallel file scanning in `src/scanner/walker.mojo` using `algorithm.parallelize` and `UnsafePointer` for result masking.
-- **Testing:** Added `tests/test_regex_smoke.mojo` and `tests/test_walker.mojo`.
+- **Optimization:**
+    - Implemented Batched Inference (Batch Size 32) in Python bridge.
+    - Optimized Mojo Walker to avoid redundant string copies.
+    - Hardened Scanner against binary files and ignored directories.
+- **Robustness:**
+    - Implemented Sliding Window fallback for context extraction.
+    - Implemented Query Expansion (Phrase -> OR Regex).
+    - Implemented Automatic Model Download on first run.
+- **UX:**
+    - Created `hygrep.sh` wrapper for easy execution.
+    - Verified JSON output for Agents.
+
+## Next Steps
+- None immediate. Ready for release/usage.

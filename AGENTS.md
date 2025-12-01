@@ -14,11 +14,14 @@ The architecture follows a strict **Recall -> Rerank** pipeline.
     *   **Role:** Find ~100 candidate files from 10,000+ files.
     *   **Constraint:** **Must be Pure Mojo/C.** No Python Runtime overhead allowed per file.
     *   **Mechanism:** Parallel Directory Walk + `libc` Regex (POSIX).
-2.  **Inference Engine (Rerank)**
+2.  **Smart Context Processor (Extraction)**
+    *   **Role:** Extract logical units (Functions/Classes) from candidates.
+    *   **Mechanism:** Tree-sitter (Code) / Heuristic (Docs).
+3.  **Inference Engine (Rerank)**
     *   **Role:** Score candidates by semantic relevance to the query.
-    *   **Constraint:** Latency < 200ms total. Python Interop is acceptable here (batch operation).
+    *   **Constraint:** Latency < 200ms total.
     *   **Mechanism:** ONNX Runtime (via Python) + `mxbai-rerank-xsmall-v1` (Cross-Encoder).
-3.  **Agent Formatter**
+4.  **Agent Formatter**
     *   **Role:** Output structured JSON for tool use.
 
 ## Project Structure
@@ -27,7 +30,7 @@ The architecture follows a strict **Recall -> Rerank** pipeline.
 |-----------|---------|
 | `src/` | Mojo source code root |
 | `src/scanner/` | **Hyper Scanner** (Pure Mojo/FFI + Parallel) |
-| `src/inference/` | **Inference Engine** (Python Interop/ONNX) |
+| `src/inference/` | **Inference Engine** (Python Interop/ONNX/Tree-sitter) |
 | `models/` | Downloaded ONNX models (gitignored) |
 | `ai/` | **AI Context** (See below) |
 
@@ -49,7 +52,8 @@ Agents **MUST** follow this workflow:
 |-----------|------------|------|
 | **Language** | Mojo (Stable v0.25.7) | Primary systems language |
 | **Inference** | ONNX Runtime | via Python Interop |
-| **Regex** | `libc` (POSIX) | FFI + Parallel |
+| **Recall** | `libc` Regex | FFI + Parallel |
+| **Context** | Tree-sitter | via Python Interop (Planned) |
 | **Model** | `mxbai-rerank-xsmall-v1` | Quantized INT8 (~40MB) |
 | **Package Mgr** | `pixi` | Handles Python/Mojo deps |
 

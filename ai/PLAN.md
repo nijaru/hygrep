@@ -9,25 +9,28 @@
 - [x] Reranker Integration (Python `onnxruntime` wrapper).
 - [x] Single-command CLI wiring.
 
-## Phase 2: Optimization (Current Focus)
+## Phase 2: Optimization (Completed)
 **Goal:** Replace Python components in the "Hot Loop" (Scanner) with Native Mojo/C.
+- [x] **FFI:** Implemented `src/scanner/c_regex.mojo` (Native `libc` binding).
+- [x] **Parallelism:** Implemented `src/scanner/walker.mojo` with `algorithm.parallelize`.
+- [x] **Benchmark:** Achieved ~19k files/sec (Scanner).
 
-### 2a. FFI Foundation (Completed)
-- [x] **Research:** Proven "Int-cast" pattern for FFI in v0.25.7.
-- [x] **Implement:** `src/scanner/c_regex.mojo` (Native `libc` binding).
-- [x] **Verify:** Verified regex logic via tests.
+## Phase 3: Smart Context (Completed)
+**Goal:** Upgrade the "Rerank" phase to provide "Agent-Ready" context.
+- [x] **Architecture:** Implemented `src/inference/bridge.py` (Python Bridge).
+- [x] **Tree-sitter:** Integrated Python bindings for extraction.
+- [x] **Extraction:** Implemented `ContextExtractor` for Python, JS, TS, Go, Rust.
+- [x] **Output:** Implemented JSON output for Agents.
 
-### 2b. Parallelism (Completed)
-- [x] **Implement:** `src/scanner/walker.mojo` using `algorithm.parallelize` + `UnsafePointer` Mask.
-- [x] **Verify:** Verified finding matches across directory structure.
+## Phase 4: Polish & Robustness (Completed)
+**Goal:** Professional CLI Experience & Edge Case Handling.
+- [x] **Fallback Strategy:** Implemented "Sliding Window" (Match +/- 5 lines) for non-code/large files.
+- [x] **Query Expansion:** Implemented heuristic ("login logic" -> "login|logic") to improve Recall.
+- [x] **Auto-Setup:** Added automatic model downloading on first run.
+- [x] **Distribution:** Created `hygrep.sh` wrapper to handle environment/linking issues.
+- [x] **Optimization:** Batched Reranking (32 items) and Mojo Walker string optimization.
 
-### 2c. Benchmarking & Tuning (Next)
-- [ ] **Benchmark:** Measure files/sec against `ripgrep` (need large dataset).
-- [ ] **Tune:** Optimize chunk size or batching if overhead is high.
-
-## Phase 3: Polish
-**Goal:** Professional CLI Experience.
-- [ ] Implement `--help` and `--version` flags.
-- [ ] Implement `--limit` flag.
-- [ ] Improve Error Handling (e.g. "Model not found - run download script").
-- [ ] JSON Output mode for Agents.
+## Phase 5: Future (Backlog)
+- [ ] **Binary Distribution:** Static linking of `libpython`?
+- [ ] **Advanced Query Expansion:** Use local LLM to generate synonyms.
+- [ ] **Mmap:** Zero-copy file reading in Scanner.

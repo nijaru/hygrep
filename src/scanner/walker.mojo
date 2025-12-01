@@ -4,9 +4,47 @@ from algorithm import parallelize
 from memory import UnsafePointer, alloc
 from src.scanner.c_regex import Regex
 
+fn is_ignored_dir(name: String) -> Bool:
+    if name == "node_modules": return True
+    if name == "target": return True
+    if name == "build": return True
+    if name == "dist": return True
+    if name == "venv": return True
+    if name == "env": return True
+    if name == ".git": return True
+    if name == ".pixi": return True
+    if name == ".vscode": return True
+    if name == ".idea": return True
+    if name == "__pycache__": return True
+    return False
+
+fn is_binary_ext(name: String) -> Bool:
+    if name.endswith(".pyc"): return True
+    if name.endswith(".o"): return True
+    if name.endswith(".so"): return True
+    if name.endswith(".dylib"): return True
+    if name.endswith(".dll"): return True
+    if name.endswith(".bin"): return True
+    if name.endswith(".exe"): return True
+    if name.endswith(".zip"): return True
+    if name.endswith(".tar"): return True
+    if name.endswith(".gz"): return True
+    if name.endswith(".pdf"): return True
+    if name.endswith(".png"): return True
+    if name.endswith(".jpg"): return True
+    if name.endswith(".jpeg"): return True
+    if name.endswith(".gif"): return True
+    if name.endswith(".ico"): return True
+    if name.endswith(".svg"): return True
+    if name.endswith(".lock"): return True
+    return False
+
 fn scan_file(file: Path, re: Regex) -> Bool:
     try:
         with open(file, "r") as f:
+            # Read only first 1MB to avoid OOM on accidental huge files
+            # Mojo f.read() reads all.
+            # If we can't limit, we trust the extension check.
             var content = f.read()
             return re.matches(content)
     except:
@@ -29,13 +67,19 @@ fn hyper_scan(root: Path, pattern: String) raises -> List[Path]:
                     var entry = entries[i]
                     var full_path = current / entry
                     
-                    if entry.name().startswith("."):
+                    # Helper to get name string
+                    var name_str = entry.name()
+                    
+                    if name_str.startswith("."):
                         continue
                         
                     if full_path.is_dir():
+                        if is_ignored_dir(name_str):
+                            continue
                         stack.append(full_path)
                     else:
-                        # print("Found file: " + String(full_path))
+                        if is_binary_ext(name_str):
+                            continue
                         all_files.append(full_path)
             except:
                 print("Error accessing: " + String(current))

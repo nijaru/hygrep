@@ -1,22 +1,28 @@
-# Knowledge Base
+# Project Knowledge & Quirks
 
-## Mojo Stable (v0.25.7)
+## Runtime Quirks
 
-### UnsafePointer & Allocation
-**Syntax:** `UnsafePointer.alloc` exists but `alloc` from `memory` is preferred/future-proof.
-**Quirk:** `UnsafePointer[T]` type inference for `mut` and `origin` parameters can be brittle when used in struct fields or aliases.
-**Workaround:** For FFI, casting pointers to `Int` (Address) is a reliable way to store and pass pointers without fighting the type checker.
+### Mojo & Python Version Mismatch
+**Issue:** Mojo (v0.25.7) may link against a system Python (e.g. 3.14) that differs from the `.pixi` environment Python (e.g. 3.13).
+**Symptom:** `Failed to initialize Smart Searcher: Python version mismatch`.
+**Fix:** Explicitly set `MOJO_PYTHON_LIBRARY` to the `.pixi` dylib before running the binary.
+**Solution:** Use the provided `hygrep.sh` wrapper script which handles this automatically.
 
-```mojo
-from memory import alloc
+## Architecture
 
-# Alloc returns UnsafePointer[T]
-var ptr = alloc[UInt8](10)
-var addr = Int(ptr) 
+### Stateless Hybrid
+We intentionally avoid building an index. We rely on:
+1.  **Recall:** Fast Regex scan (~20k files/sec). Pure Mojo + Parallelism.
+2.  **Rerank:** Heavy semantic model (`mxbai-rerank`) on small candidate set (<100 files). Batched inference in Python.
 
-# Pass 'addr' to C functions taking void*
-external_call["c_func", NoneType](addr)
-```
+### Smart Context
+We use `tree-sitter` 0.24+ Python bindings.
+*   **Code:** Extracts full functions/classes.
+*   **Text/Fallback:** Sliding window (+/- 5 lines) around regex match.
 
-### Libc Binding
-Use `Int` as the type alias for `void*` to avoid `UnsafePointer[NoneType]` inference issues.
+### Known Limitations (Edge Cases)
+
+1.  **Circular Symlinks:** The scanner currently follows all directories. Circular symlinks will cause an infinite loop/stack overflow.
+2.  **Large Binary Files:** The scanner attempts to read files as text. We check extensions to skip binaries (`.exe`, `.png`), but a randomly named binary file might cause issues.
+3.  **Hidden Files:** Files starting with `.` are skipped by default.
+4.  **Memory Leak:** A small (128 byte) leak per run exists in the `Regex` struct due to Mojo `UnsafePointer` type inference limitations in v0.25.7 preventing clean destruction. This is negligible for a CLI tool.
