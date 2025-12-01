@@ -58,9 +58,6 @@ pixi run run -- "pattern" ./src
 
 # Run semantic search
 ./hygrep "login logic" ./src --smart
-
-# Run as MCP server
-./hygrep --server
 ```
 
 ## Development Phases
@@ -70,3 +67,5 @@ pixi run run -- "pattern" ./src
 3.  **The Agent Interface**: JSON output, Tokenizer, MCP Server
 
 See `ai/PLAN.md` for detailed roadmap.
+
+`~/github/modular/modular` for latest modular docs, src, stdlib for mojo and max

@@ -51,17 +51,11 @@ The binary will be available at `./hygrep`.
 ./hygrep "login logic" ./src
 ```
 
-### Agent Mode (MCP)
-Runs as a persistent server for AI agents.
-```bash
-./hygrep --server
-```
-
 ## Roadmap
 
 - [ ] **Phase 1: Hyper Scanner** - High-performance parallel directory walker & regex engine.
-- [ ] **Phase 2: The Brain** - Integration with MAX Engine and Qwen-Reranker models.
-- [ ] **Phase 3: Agent Interface** - Full MCP Server implementation and JSON output.
+- [ ] **Phase 2: The Brain** - Integration with ONNX Runtime and Mixedbread Reranker.
+- [ ] **Phase 3: CLI Polish** - Robust flags, JSON output, and professional UX.
 
 ## License
 

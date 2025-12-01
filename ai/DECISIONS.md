@@ -27,6 +27,6 @@
 - **Default:** `mixedbread-ai/mxbai-rerank-xsmall-v1`.
 - **Format:** ONNX (Quantized).
 
-## 5. Protocol
-**Decision:** MCP Native
-**Why:** Allows AI agents to integrate `hygrep` as a structured tool for code exploration.
+## 5. Output Format
+**Decision:** Standard CLI (Text) + Optional JSON
+**Why:** Primary user is a human developer. JSON is sufficient for agents to parse if needed.

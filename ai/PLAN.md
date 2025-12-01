@@ -15,9 +15,9 @@
 - [ ] Implement `rerank(query, candidates)`
 - [ ] **Milestone:** `hygrep "login bug" ./src` (Default Mode) returns semantic matches.
 
-## Phase 3: The Agent Interface (Week 5)
-**Goal:** JSON & Token Counting.
-- [ ] Implement fast BPE Tokenizer in Mojo
-- [ ] Add `--json` flag
-- [ ] Implement basic MCP Server loop (stdio)
-- [ ] **Milestone:** Connect `hygrep` to an MCP Client.
+## Phase 3: CLI Polish (Week 5)
+**Goal:** Professional CLI Experience.
+- [ ] Implement robust `--help` menu (using `arc` or manual parsing).
+- [ ] Add standard flags (`--version`, `--json`, `--limit`).
+- [ ] Improve error handling and output formatting.
+- [ ] **Milestone:** `hygrep --help` returns a standard, clear manual.
