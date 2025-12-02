@@ -31,11 +31,36 @@
 - Mojo's `List` is not thread-safe for concurrent writes.
 - Allocating a boolean mask (thread-safe writing by index) prevents locks/contention.
 
-## 6. Distribution Strategy (2025-12-01)
-**Decision:** Bundle Python Environment (Tarball) vs Python Package.
-**Choice:** **Tarball Bundle** (Short term) -> **Pure Mojo/C Rewrite** (Long term).
-**Reasoning:**
-- We cannot easily ship as a Python package because we want Mojo to be the entry point (fast startup).
-- If Python starts first, we lose the "instant grep" feel.
-- **Short Term:** Ship binary + stripped `.pixi` environment + wrapper script.
-- **Long Term:** Rewrite `src/inference/bridge.py` in Mojo using C-FFI for ONNX Runtime and Tree-sitter. This will eliminate `libpython` dependency entirely, resulting in a truly standalone binary.
+## 6. Distribution Strategy (2025-12-01, Updated)
+**Decision:** Mojo as Python Extension Module
+**Choice:** Python CLI + Mojo native extension → PyPI wheel
+
+**Discovery:** Mojo supports `PythonModuleBuilder` for building native Python extensions:
+```bash
+mojo build scanner.mojo --emit shared-lib -o _scanner.so
+python -c "from _scanner import scan; scan(...)"  # Native speed!
+```
+
+**Architecture:**
+```
+hygrep (Python CLI) → _scanner.so (Mojo extension) → reranker (Python/ONNX)
+```
+
+**Why this works:**
+- Native call overhead (~0.01ms vs ~6ms subprocess)
+- `pip install hygrep` / `uv tool install hygrep` just works
+- Keep Mojo scanner code (no Rust rewrite)
+- Python handles deps (onnxruntime, tree-sitter, etc.)
+
+**Implementation:**
+1. Refactor `walker.mojo` → `_scanner.mojo` (Python extension API)
+2. Python CLI entry point imports `_scanner` directly
+3. GitHub Actions builds platform wheels (macOS-arm64, linux-x64)
+4. Publish to PyPI as `hygrep`
+
+**Trade-offs:**
+- Need Mojo SDK in CI (vs maturin for Rust)
+- Manual wheel packaging (no maturin equivalent yet)
+- Python startup overhead (~50ms) - acceptable for CLI
+
+**Long-term:** When Mojo ecosystem matures, can go pure Mojo binary.

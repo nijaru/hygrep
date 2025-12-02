@@ -9,12 +9,16 @@
 
 ## Active Work
 
-None. Ready for distribution or Mojo tree-sitter research.
+Distribution architecture decided. Ready for implementation.
 
 ## Completed (This Session)
 
 - P3: Avoid double file reads (ScanMatch struct passes content from scanner to extractor)
 - P3: Parallel context extraction (ThreadPoolExecutor for tree-sitter parsing)
+- Renamed repo: hypergrep → hygrep (CLI, package, repo aligned)
+- **Discovery:** Mojo `PythonModuleBuilder` enables native Python extensions
+  - No subprocess overhead, direct import
+  - Enables `pip install hygrep` distribution
 
 ## Blockers
 
@@ -26,4 +30,9 @@ None.
 
 ## Next Steps
 
-See `bd list --status=open` for 3 open issues (P3-P4).
+1. Refactor scanner as Mojo Python extension (`_scanner.so`)
+2. Create Python CLI entry point
+3. Set up GitHub Actions for wheel building
+4. Publish to PyPI
+
+See `bd list --status=open` for open issues.

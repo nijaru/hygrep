@@ -104,6 +104,39 @@ fn worker(i: Int):
 parallelize[worker](num_items)
 ```
 
+### Python Extension Modules
+
+Build Mojo as native Python extension (no subprocess overhead):
+
+```mojo
+from python import Python, PythonObject
+from python.bindings import PythonModuleBuilder
+
+@export
+fn PyInit_scanner() -> PythonObject:
+    try:
+        var b = PythonModuleBuilder("scanner")
+        b.def_function[scan_files]("scan_files")
+        return b.finalize()
+    except e:
+        return abort[PythonObject](String("failed: ", e))
+
+@export
+fn scan_files(root: PythonObject, pattern: PythonObject) raises -> PythonObject:
+    # Return Python list of matches
+    var results = Python.evaluate("[]")
+    # ... scan logic ...
+    return results
+```
+
+Build and use:
+```bash
+mojo build scanner.mojo --emit shared-lib -o _scanner.so
+python -c "from _scanner import scan_files; print(scan_files('.', 'test'))"
+```
+
+Reference: `~/github/modular/modular/mojo/integration-test/python-extension-modules/`
+
 ## Code Standards
 
 | Aspect | Standard |
@@ -126,9 +159,8 @@ parallelize[worker](num_items)
 
 | Issue | Impact | Status |
 |-------|--------|--------|
-| Circular symlinks | Infinite loop | Open |
 | 128-byte regex leak | Negligible for CLI | Mojo v25.7 limitation |
-| Python version coupling | Hardcoded 3.11-3.13 | Needs fix |
+| Wheel building | No maturin equivalent | Manual CI setup |
 
 ## AI Context
 
