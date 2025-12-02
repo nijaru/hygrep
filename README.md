@@ -81,6 +81,32 @@ hygrep "test" . --exclude "*.test.js" --exclude "tests/*"
 hygrep --completions bash >> ~/.bashrc
 hygrep --completions zsh >> ~/.zshrc
 hygrep --completions fish > ~/.config/fish/completions/hygrep.fish
+
+# Include hidden files
+hygrep "TODO" . --hidden
+```
+
+### Config File
+
+Create `~/.config/hygrep/config.toml` for persistent defaults:
+
+```toml
+# Default number of results
+n = 10
+
+# Always use color
+color = "always"
+
+# Default exclude patterns
+exclude = ["*.test.js", "node_modules/*"]
+
+# Other options
+# fast = true
+# quiet = true
+# hidden = true
+# no_ignore = true
+# max_candidates = 50
+# min_score = 0.3
 ```
 
 ### Output

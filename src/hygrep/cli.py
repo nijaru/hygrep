@@ -7,9 +7,28 @@ import sys
 import time
 from pathlib import Path
 
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib  # Fallback for Python < 3.11
+
 import pathspec
 
 from . import __version__
+
+# Config file location
+CONFIG_PATH = Path.home() / ".config" / "hygrep" / "config.toml"
+
+
+def load_config() -> dict:
+    """Load config from ~/.config/hygrep/config.toml if it exists."""
+    if not CONFIG_PATH.exists():
+        return {}
+    try:
+        with open(CONFIG_PATH, "rb") as f:
+            return tomllib.load(f)
+    except Exception:
+        return {}
 
 # Exit codes (grep convention)
 EXIT_MATCH = 0
@@ -72,7 +91,7 @@ _hygrep() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    opts="-n -t -C -q -v -h --json --fast --quiet --version --help --type --context --max-candidates --color --no-ignore --stats --min-score --exclude"
+    opts="-n -t -C -q -v -h --json --fast --quiet --version --help --type --context --max-candidates --color --no-ignore --stats --min-score --exclude --hidden"
 
     case "${prev}" in
         -t|--type)
@@ -123,6 +142,7 @@ _hygrep() {
         '--stats[Show timing statistics]'
         '--min-score[Filter results below score]:score:'
         '--exclude[Exclude files matching pattern]:pattern:'
+        '--hidden[Include hidden files and directories]'
     )
     _arguments -s $opts '*:directory:_files -/'
 }
@@ -145,6 +165,7 @@ complete -c hygrep -l no-ignore -d "Ignore .gitignore files"
 complete -c hygrep -l stats -d "Show timing statistics"
 complete -c hygrep -l min-score -d "Filter results below score"
 complete -c hygrep -l exclude -d "Exclude files matching pattern"
+complete -c hygrep -l hidden -d "Include hidden files and directories"
 '''
 
 
@@ -194,8 +215,35 @@ def main():
         "--completions", choices=["bash", "zsh", "fish"],
         help="Output shell completion script and exit"
     )
+    parser.add_argument(
+        "--hidden", action="store_true",
+        help="Include hidden files and directories"
+    )
 
     args = parser.parse_args()
+
+    # Load config and apply defaults (CLI args override config)
+    config = load_config()
+    if config:
+        # Apply config defaults for unset args
+        if args.n == 10 and "n" in config:  # 10 is argparse default
+            args.n = config["n"]
+        if args.max_candidates == 100 and "max_candidates" in config:
+            args.max_candidates = config["max_candidates"]
+        if args.color == "auto" and "color" in config:
+            args.color = config["color"]
+        if args.min_score == 0.0 and "min_score" in config:
+            args.min_score = config["min_score"]
+        if not args.fast and config.get("fast", False):
+            args.fast = True
+        if not args.quiet and config.get("quiet", False):
+            args.quiet = True
+        if not args.hidden and config.get("hidden", False):
+            args.hidden = True
+        if not args.no_ignore and config.get("no_ignore", False):
+            args.no_ignore = True
+        if not args.exclude and "exclude" in config:
+            args.exclude = config["exclude"] if isinstance(config["exclude"], list) else [config["exclude"]]
 
     # Handle completions
     if args.completions:
@@ -257,7 +305,7 @@ def main():
         sys.exit(EXIT_ERROR)
 
     scan_start = time.perf_counter()
-    file_contents = scan(str(root), scanner_query)
+    file_contents = scan(str(root), scanner_query, args.hidden)
     stats["scan_ms"] = int((time.perf_counter() - scan_start) * 1000)
 
     filter_start = time.perf_counter()

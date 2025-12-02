@@ -37,19 +37,21 @@ fn PyInit__scanner() -> PythonObject:
 
 
 @export
-fn scan(root_obj: PythonObject, pattern_obj: PythonObject) raises -> PythonObject:
+fn scan(root_obj: PythonObject, pattern_obj: PythonObject, include_hidden_obj: PythonObject = False) raises -> PythonObject:
     """
     Scan directory tree for files matching regex pattern.
 
     Args:
         root_obj: Root directory path (str)
         pattern_obj: Regex pattern to match (str)
+        include_hidden_obj: Whether to include hidden files (bool, default False)
 
     Returns:
         Python dict mapping file paths to their contents
     """
     var root = Path(String(root_obj))
     var pattern = String(pattern_obj)
+    var include_hidden = Bool(include_hidden_obj)
 
     # Validate root
     if not root.exists():
@@ -58,7 +60,7 @@ fn scan(root_obj: PythonObject, pattern_obj: PythonObject) raises -> PythonObjec
         raise Error("Path is not a directory: " + String(root))
 
     # Run the scan
-    var matches = hyper_scan(root, pattern)
+    var matches = hyper_scan(root, pattern, include_hidden)
 
     # Convert to Python dict (skip any files that fail UTF-8 conversion)
     var result = Python.evaluate("{}")
@@ -203,7 +205,7 @@ fn scan_file_with_content(file: Path, re: Regex) -> String:
         return ""
 
 
-fn hyper_scan(root: Path, pattern: String) raises -> List[ScanMatch]:
+fn hyper_scan(root: Path, pattern: String, include_hidden: Bool = False) raises -> List[ScanMatch]:
     var candidates = List[ScanMatch]()
     var all_files = List[Path]()
     var visited = Set[String]()
@@ -230,7 +232,8 @@ fn hyper_scan(root: Path, pattern: String) raises -> List[ScanMatch]:
                     var full_path = current / entry
                     var name_str = entry.name()
 
-                    if name_str.startswith("."):
+                    # Skip hidden files unless --hidden flag
+                    if not include_hidden and name_str.startswith("."):
                         continue
 
                     if full_path.is_dir():
