@@ -1,4 +1,4 @@
-# HyperGrep (`hygrep`)
+# hygrep
 
 > **The Hybrid Search CLI: `grep` speed, LLM intelligence.**
 
@@ -20,8 +20,8 @@
 - [Pixi](https://pixi.sh/) (Package Manager)
 
 ```bash
-git clone https://github.com/nijaru/hypergrep
-cd hypergrep
+git clone https://github.com/nijaru/hygrep
+cd hygrep
 pixi install
 pixi run build
 ```

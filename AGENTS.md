@@ -1,4 +1,4 @@
-# HyperGrep (hygrep)
+# hygrep
 
 **Hybrid search CLI: grep speed + LLM intelligence. Stateless, no indexing.**
 
