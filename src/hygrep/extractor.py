@@ -51,8 +51,9 @@ class ContextExtractor:
     def __init__(self):
         self.parsers = {}
         self.languages = {}
-        
-        # Pre-initialize parsers
+        self.queries = {}  # Cache compiled queries per language
+
+        # Pre-initialize parsers and queries
         for ext, capsule in LANGUAGE_CAPSULES.items():
             try:
                 # Wrap the PyCapsule in a Language object
@@ -60,8 +61,22 @@ class ContextExtractor:
                 parser = Parser(lang)
                 self.parsers[ext] = parser
                 self.languages[ext] = lang
+
+                # Pre-compile queries
+                lang_name = self._ext_to_lang_name(ext)
+                if lang_name and lang_name in QUERIES:
+                    self.queries[ext] = lang.query(QUERIES[lang_name])
             except Exception as e:
                 print(f"Warning: Failed to load parser for {ext}: {e}")
+
+    def _ext_to_lang_name(self, ext: str) -> Optional[str]:
+        """Map file extension to language name for queries."""
+        if ext == ".py": return "python"
+        if ext in [".js", ".jsx"]: return "javascript"
+        if ext in [".ts", ".tsx"]: return "typescript"
+        if ext == ".rs": return "rust"
+        if ext == ".go": return "go"
+        return None
 
     def get_language_for_file(self, path: str) -> Optional[Any]:
         _, ext = os.path.splitext(path)
@@ -122,25 +137,18 @@ class ContextExtractor:
         # Parse
         tree = parser.parse(bytes(content, "utf8"))
         
-        # Run Query
-        lang_obj = self.languages[ext]
-        lang_name = "python" if ext == ".py" else \
-                    "javascript" if ext in [".js", ".jsx"] else \
-                    "typescript" if ext in [".ts", ".tsx"] else \
-                    "rust" if ext == ".rs" else \
-                    "go" if ext == ".go" else None
-        
-        if not lang_name or lang_name not in QUERIES:
-             return self._fallback_sliding_window(file_path, content, query)
+        # Run Query (use cached query object)
+        q_obj = self.queries.get(ext)
+        if not q_obj:
+            return self._fallback_sliding_window(file_path, content, query)
 
         captures = []
         try:
-            q_obj = lang_obj.query(QUERIES[lang_name])
             cursor = QueryCursor(q_obj)
             captures = cursor.captures(tree.root_node)
         except Exception as e:
-             print(f"Query error for {file_path}: {e}")
-             return self._fallback_sliding_window(file_path, content, query)
+            print(f"Query error for {file_path}: {e}")
+            return self._fallback_sliding_window(file_path, content, query)
         
         blocks = []
         seen_ranges = set()

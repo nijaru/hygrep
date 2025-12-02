@@ -64,3 +64,28 @@ hygrep (Python CLI) → _scanner.so (Mojo extension) → reranker (Python/ONNX)
 - Python startup overhead (~50ms) - acceptable for CLI
 
 **Long-term:** When Mojo ecosystem matures, can go pure Mojo binary.
+
+## 7. Performance Profiling (2025-12-02)
+
+**Findings:**
+| Phase | Time | Notes |
+|-------|------|-------|
+| Scan | ~2ms | Mojo parallel regex - blazing fast |
+| Filter | ~0ms | Gitignore + exclude patterns |
+| Rerank | ~2200ms | Tree-sitter extraction + ONNX inference |
+
+**Bottleneck:** Rerank phase (98% of total time)
+- Model loading: ~500ms first call (cached after)
+- Tree-sitter extraction: ~200ms (100 files)
+- ONNX inference: ~1500ms (100 candidates @ batch=32)
+
+**Optimizations Applied:**
+1. **Query caching** - Pre-compile tree-sitter queries per language (15% improvement)
+2. **Parallel extraction** - ThreadPoolExecutor for tree-sitter parsing
+3. **Batched inference** - BATCH_SIZE=32, ORT_ENABLE_ALL optimization
+4. **max_candidates cap** - Default 100, prevents unbounded inference cost
+
+**Future Options (not implemented):**
+- GPU acceleration (onnxruntime-gpu) - 5-10x faster inference
+- Daemon mode with warm model - eliminate load time
+- Smaller model - quality tradeoff
