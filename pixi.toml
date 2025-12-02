@@ -25,11 +25,11 @@ tree-sitter-go = ">=0.23.0"
 [tasks]
 # Build Mojo scanner as Python extension
 build-ext = "mojo build src/scanner/_scanner.mojo --emit shared-lib -o src/hygrep/_scanner.so"
-# Legacy: Build standalone Mojo CLI
-build = "mojo build cli.mojo -o hygrep"
 # Run Python CLI
 hygrep = { cmd = "python -m hygrep.cli", env = { PYTHONPATH = "src" } }
-# Run tests
-test = "mojo -I . tests/test_regex_smoke.mojo && mojo -I . tests/test_walker.mojo"
-# Build wheel (after build-ext)
-build-wheel = "python -m build --wheel"
+# Run Mojo tests
+test-mojo = "mojo -I . tests/test_regex_smoke.mojo && mojo -I . tests/test_scanner.mojo"
+# Run Python tests
+test-py = { cmd = "python tests/test_context.py && python tests/test_reranker.py", env = { PYTHONPATH = "src" } }
+# Run all tests
+test = { depends-on = ["test-mojo", "test-py"] }

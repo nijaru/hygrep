@@ -2,26 +2,30 @@
 
 | Metric | Value | Updated |
 |--------|-------|---------|
-| Phase | 5 (Stable) | 2025-12-01 |
-| Version | 0.1.0 | 2025-12-01 |
-| Perf | ~19k files/sec (Recall) | 2025-12-01 |
+| Phase | 6 (Performance) | 2025-12-02 |
+| Version | 0.2.0-dev | 2025-12-02 |
+| Perf | ~20k files/sec (Recall) | 2025-12-02 |
+| Inference | 2.5x faster (4 threads) | 2025-12-02 |
 | Mojo | v25.7 | 2025-12-01 |
 
 ## Active Work
 
-Distribution architecture implemented. Ready for CI/CD and PyPI.
+Phase 6 performance optimizations implemented.
 
 ## Completed (This Session)
 
-- P3: Avoid double file reads (ScanMatch struct passes content from scanner to extractor)
-- P3: Parallel context extraction (ThreadPoolExecutor for tree-sitter parsing)
-- Renamed repo: hypergrep → hygrep (CLI, package, repo aligned)
-- **Discovery:** Mojo `PythonModuleBuilder` enables native Python extensions
-- **Implemented:** New distribution architecture:
-  - `src/scanner/_scanner.mojo` - Mojo Python extension module
-  - `src/hygrep/` - Python package (cli.py, reranker.py, extractor.py)
-  - `pyproject.toml` - hatchling wheel packaging
-  - Updated `pixi.toml` with build-ext, hygrep tasks
+### Phase 6: Performance & Polish
+- **Thread optimization:** 4-thread ONNX inference (2.5x speedup)
+- **`--fast` mode:** Skip neural reranking for instant grep (10x faster)
+- **`-t/--type` filter:** Filter by file type (py, js, ts, etc.)
+- **`--max-candidates`:** Cap inference work (default 100)
+- **Graph optimization:** ORT_ENABLE_ALL for model
+
+### Previous
+- Distribution architecture (Mojo Python extension)
+- Platform-specific wheel tags
+- UTF-8 binary file handling
+- Removed legacy Mojo CLI
 
 ## Blockers
 

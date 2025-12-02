@@ -44,7 +44,7 @@ def ensure_models(model_path: str, tokenizer_path: str):
 class Reranker:
     """Cross-encoder reranker using ONNX Runtime."""
 
-    def __init__(self, model_dir: str = "models"):
+    def __init__(self, model_dir: str = "models", num_threads: int = 4):
         model_path = os.path.join(model_dir, "reranker.onnx")
         tokenizer_path = os.path.join(model_dir, "tokenizer.json")
 
@@ -57,10 +57,16 @@ class Reranker:
         self.tokenizer.enable_padding(length=512)
         self.tokenizer.enable_truncation(max_length=512)
 
-        # Load model
-        self.session = ort.InferenceSession(model_path)
+        # Load model with optimized session options
+        sess_options = ort.SessionOptions()
+        sess_options.intra_op_num_threads = num_threads
+        sess_options.inter_op_num_threads = 1
+        sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        self.session = ort.InferenceSession(model_path, sess_options=sess_options)
 
-    def search(self, query: str, file_contents: dict, top_k: int = 10) -> list:
+    def search(
+        self, query: str, file_contents: dict, top_k: int = 10, max_candidates: int = 100
+    ) -> list:
         """
         Full pipeline: Extract -> Rerank.
 
@@ -68,6 +74,7 @@ class Reranker:
             query: Search query
             file_contents: Dict mapping file paths to contents
             top_k: Number of results to return
+            max_candidates: Max candidates to rerank (caps inference cost)
 
         Returns:
             List of ranked results
@@ -98,6 +105,12 @@ class Reranker:
 
         if not candidates:
             return []
+
+        # Cap candidates to limit inference cost
+        if len(candidates) > max_candidates:
+            # Sort by content length (shorter = more focused) as heuristic
+            candidates.sort(key=lambda x: len(x["score_text"]))
+            candidates = candidates[:max_candidates]
 
         # 2. Reranking Phase (Batched)
         BATCH_SIZE = 32

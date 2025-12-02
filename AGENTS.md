@@ -5,10 +5,10 @@
 ## Quick Reference
 
 ```bash
-pixi run build                      # Build binary
-pixi run test                       # Run tests
-pixi run ./hygrep "query" ./src     # Search
-pixi run ./hygrep "query" . --json  # Agent output
+pixi run build-ext               # Build Mojo scanner extension
+pixi run hygrep "query" ./src    # Search
+pixi run hygrep "query" . --json # Agent output
+pixi run test                    # Run all tests
 ```
 
 ## Architecture
@@ -20,28 +20,29 @@ Query → [Recall: Mojo Scanner] → candidates → [Rerank: ONNX] → results
         ~20k files/sec                    Cross-encoder scoring
 ```
 
-| Stage | Constraint | Implementation |
-|-------|------------|----------------|
-| Scanner | Pure Mojo/C, no Python | `src/scanner/walker.mojo` + `c_regex.mojo` |
-| Extraction | Tree-sitter AST | `src/inference/context.py` |
-| Reranking | <200ms latency | `src/inference/bridge.py` (ONNX batched) |
+| Stage | Implementation |
+|-------|----------------|
+| Scanner | `src/scanner/_scanner.mojo` (Python extension) + `c_regex.mojo` |
+| Extraction | `src/hygrep/extractor.py` (Tree-sitter AST) |
+| Reranking | `src/hygrep/reranker.py` (ONNX batched) |
 
 ## Project Structure
 
 ```
 src/
 ├── scanner/
-│   ├── walker.mojo      # Parallel directory traversal
-│   ├── c_regex.mojo     # POSIX regex FFI (libc)
-│   └── py_regex.mojo    # Python regex fallback (unused)
-├── inference/
-│   ├── reranker.mojo    # Python bridge wrapper
-│   ├── bridge.py        # ONNX inference + orchestration
-│   └── context.py       # Tree-sitter extraction
-cli.mojo                 # Entry point
-tests/                   # Mirrors src/ structure
-models/                  # ONNX models (gitignored, auto-downloaded)
-ai/                      # Session context
+│   ├── _scanner.mojo   # Python extension module (scan function)
+│   └── c_regex.mojo    # POSIX regex FFI (libc)
+├── hygrep/
+│   ├── __init__.py     # Package version
+│   ├── cli.py          # Python CLI entry point
+│   ├── extractor.py    # Tree-sitter extraction
+│   └── reranker.py     # ONNX cross-encoder
+│   └── _scanner.so     # Built extension (gitignored)
+tests/                  # Mojo + Python tests
+models/                 # ONNX models (gitignored, auto-downloaded)
+pyproject.toml          # Python packaging
+hatch_build.py          # Platform wheel hook
 ```
 
 ## Technology Stack
@@ -49,20 +50,45 @@ ai/                      # Session context
 | Component | Version | Notes |
 |-----------|---------|-------|
 | Mojo | 25.7.* | Via MAX package |
-| Python | >=3.11, <3.14 | Interop for inference |
+| Python | >=3.11, <3.14 | CLI + inference |
 | ONNX Runtime | >=1.16 | Model execution |
 | Tree-sitter | >=0.24 | AST parsing (6 languages) |
 | Model | mxbai-rerank-xsmall-v1 | INT8 quantized, ~40MB |
 
-## Mojo Patterns (from modular/stdlib)
+## Mojo Patterns
+
+### Python Extension Modules
+
+Build Mojo as native Python extension (no subprocess overhead):
+
+```mojo
+from python import Python, PythonObject
+from python.bindings import PythonModuleBuilder
+
+@export
+fn PyInit__scanner() -> PythonObject:
+    try:
+        var b = PythonModuleBuilder("_scanner")
+        b.def_function[scan]("scan", docstring="...")
+        return b.finalize()
+    except e:
+        return abort[PythonObject](String("failed: ", e))
+
+@export
+fn scan(root: PythonObject, pattern: PythonObject) raises -> PythonObject:
+    # Return Python dict of matches
+    var result = Python.evaluate("{}")
+    # ... scan logic ...
+    return result
+```
+
+Build: `mojo build src/scanner/_scanner.mojo --emit shared-lib -o src/hygrep/_scanner.so`
 
 ### FFI for C Interop
 
 ```mojo
-# Use sys.ffi types for C compatibility
 from sys.ffi import c_char, c_int, external_call
 
-# Proper external_call signature
 fn regcomp(
     preg: UnsafePointer[regex_t],
     pattern: UnsafePointer[c_char],
@@ -74,68 +100,19 @@ fn regcomp(
 ### Memory Management
 
 ```mojo
-# Always pair alloc with free (use defer for safety)
 var buffer = alloc[UInt8](size)
 defer: buffer.free()
-
-# Initialize allocated memory explicitly
-for i in range(size):
-    buffer[i] = 0
-```
-
-### Error Handling
-
-```mojo
-# Use raises for recoverable errors
-fn scan_directory(path: Path) raises -> List[Path]:
-    if not path.exists():
-        raise Error("Path does not exist: " + String(path))
-    # ...
 ```
 
 ### Parallel Patterns
 
 ```mojo
-# Use @parameter for worker functions
 @parameter
 fn worker(i: Int):
     result[i] = process(items[i])
 
 parallelize[worker](num_items)
 ```
-
-### Python Extension Modules
-
-Build Mojo as native Python extension (no subprocess overhead):
-
-```mojo
-from python import Python, PythonObject
-from python.bindings import PythonModuleBuilder
-
-@export
-fn PyInit_scanner() -> PythonObject:
-    try:
-        var b = PythonModuleBuilder("scanner")
-        b.def_function[scan_files]("scan_files")
-        return b.finalize()
-    except e:
-        return abort[PythonObject](String("failed: ", e))
-
-@export
-fn scan_files(root: PythonObject, pattern: PythonObject) raises -> PythonObject:
-    # Return Python list of matches
-    var results = Python.evaluate("[]")
-    # ... scan logic ...
-    return results
-```
-
-Build and use:
-```bash
-mojo build scanner.mojo --emit shared-lib -o _scanner.so
-python -c "from _scanner import scan_files; print(scan_files('.', 'test'))"
-```
-
-Reference: `~/github/modular/modular/mojo/integration-test/python-extension-modules/`
 
 ## Code Standards
 
@@ -151,30 +128,27 @@ Reference: `~/github/modular/modular/mojo/integration-test/python-extension-modu
 
 | Check | Command | Pass Criteria |
 |-------|---------|---------------|
-| Build | `pixi run build` | Zero errors |
+| Build | `pixi run build-ext` | Zero errors |
 | Test | `pixi run test` | All pass |
-| Smoke | `./hygrep "test" ./src` | Returns results |
+| Smoke | `pixi run hygrep "test" ./src` | Returns results |
+| Wheel | `uv build --wheel` | Platform-tagged wheel |
 
 ## Known Limitations
 
 | Issue | Impact | Status |
 |-------|--------|--------|
 | 128-byte regex leak | Negligible for CLI | Mojo v25.7 limitation |
-| Wheel building | No maturin equivalent | Manual CI setup |
 
 ## AI Context
 
-**Read order:** `ai/STATUS.md` → `ai/DECISIONS.md` → `ai/ROADMAP.md`
+**Read order:** `ai/STATUS.md` → `ai/DECISIONS.md`
 
 | File | Purpose |
 |------|---------|
 | `ai/STATUS.md` | Current state, blockers |
 | `ai/DECISIONS.md` | Architectural decisions |
-| `ai/ROADMAP.md` | Phases, milestones |
-| `ai/research/` | External research |
 
 ## External References
 
 - Mojo stdlib patterns: `~/github/modular/modular/mojo/stdlib/`
-- FFI examples: `stdlib/sys/ffi.mojo`, `stdlib/sys/_libc.mojo`
-- Memory safety: `stdlib/memory/unsafe_pointer.mojo`
+- Python extensions: `~/github/modular/modular/mojo/integration-test/python-extension-modules/`

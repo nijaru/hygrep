@@ -43,11 +43,20 @@ hygrep "login logic" ./src
 # Limit results
 hygrep "auth" . -n 5
 
+# Fast mode (skip neural reranking, instant grep)
+hygrep "error" ./src --fast
+
+# Filter by file type
+hygrep "function" . -t py,js
+
 # JSON output for agents
 hygrep "error handling" ./src --json
 
 # Quiet mode (no progress)
 hygrep "test" . -q
+
+# Limit candidates for faster reranking
+hygrep "query" ./large-codebase --max-candidates 50
 ```
 
 ### Output

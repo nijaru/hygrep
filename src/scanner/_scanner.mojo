@@ -60,11 +60,15 @@ fn scan(root_obj: PythonObject, pattern_obj: PythonObject) raises -> PythonObjec
     # Run the scan
     var matches = hyper_scan(root, pattern)
 
-    # Convert to Python dict
+    # Convert to Python dict (skip any files that fail UTF-8 conversion)
     var result = Python.evaluate("{}")
     for i in range(len(matches)):
-        var path_str = String(matches[i].path)
-        result[path_str] = matches[i].content
+        try:
+            var path_str = String(matches[i].path)
+            result[path_str] = matches[i].content
+        except:
+            # Skip files with encoding issues
+            pass
 
     return result
 
@@ -104,28 +108,80 @@ fn is_ignored_dir(name: String) -> Bool:
 
 
 fn is_binary_ext(name: String) -> Bool:
+    # Compiled/object files
     if name.endswith(".pyc"): return True
+    if name.endswith(".pyo"): return True
     if name.endswith(".o"): return True
     if name.endswith(".so"): return True
     if name.endswith(".dylib"): return True
     if name.endswith(".dll"): return True
     if name.endswith(".bin"): return True
     if name.endswith(".exe"): return True
+    if name.endswith(".a"): return True
+    if name.endswith(".lib"): return True
+    # Archives
     if name.endswith(".zip"): return True
     if name.endswith(".tar"): return True
     if name.endswith(".gz"): return True
+    if name.endswith(".bz2"): return True
+    if name.endswith(".xz"): return True
+    if name.endswith(".7z"): return True
+    if name.endswith(".rar"): return True
+    if name.endswith(".jar"): return True
+    if name.endswith(".war"): return True
+    if name.endswith(".whl"): return True
+    # Documents/media
     if name.endswith(".pdf"): return True
+    if name.endswith(".doc"): return True
+    if name.endswith(".docx"): return True
+    if name.endswith(".xls"): return True
+    if name.endswith(".xlsx"): return True
+    if name.endswith(".ppt"): return True
+    if name.endswith(".pptx"): return True
+    # Images
     if name.endswith(".png"): return True
     if name.endswith(".jpg"): return True
     if name.endswith(".jpeg"): return True
     if name.endswith(".gif"): return True
     if name.endswith(".ico"): return True
     if name.endswith(".svg"): return True
+    if name.endswith(".webp"): return True
+    if name.endswith(".bmp"): return True
+    if name.endswith(".tiff"): return True
+    # Audio/video
+    if name.endswith(".mp3"): return True
+    if name.endswith(".mp4"): return True
+    if name.endswith(".wav"): return True
+    if name.endswith(".avi"): return True
+    if name.endswith(".mov"): return True
+    if name.endswith(".mkv"): return True
+    # Data files
+    if name.endswith(".db"): return True
+    if name.endswith(".sqlite"): return True
+    if name.endswith(".sqlite3"): return True
+    if name.endswith(".pickle"): return True
+    if name.endswith(".pkl"): return True
+    if name.endswith(".npy"): return True
+    if name.endswith(".npz"): return True
+    if name.endswith(".onnx"): return True
+    if name.endswith(".pt"): return True
+    if name.endswith(".pth"): return True
+    if name.endswith(".safetensors"): return True
+    # Lock files
     if name.endswith(".lock"): return True
+    if name.endswith("-lock.json"): return True
     return False
 
 
 alias MAX_FILE_SIZE = 1_000_000  # 1MB limit
+
+
+fn is_likely_binary(content: String) -> Bool:
+    """Check if content appears to be binary (contains null bytes)."""
+    for i in range(min(len(content), 8192)):
+        if ord(content[i]) == 0:
+            return True
+    return False
 
 
 fn scan_file_with_content(file: Path, re: Regex) -> String:
@@ -137,6 +193,9 @@ fn scan_file_with_content(file: Path, re: Regex) -> String:
 
         with open(file, "r") as f:
             var content = f.read()
+            # Skip binary files that slipped through extension check
+            if is_likely_binary(content):
+                return ""
             if re.matches(content):
                 return content
             return ""

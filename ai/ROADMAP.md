@@ -2,35 +2,87 @@
 
 **Goal:** Build `hygrep` - The high-performance Hybrid Search CLI.
 
-## Phase 1: Prototype (Completed)
-**Goal:** functional End-to-End pipeline (Scanner -> Reranker).
-- [x] Basic Directory Walker (Sequential, Mojo).
-- [x] Regex Matching (Python `re` wrapper).
-- [x] Reranker Integration (Python `onnxruntime` wrapper).
-- [x] Single-command CLI wiring.
+## Completed Phases
 
-## Phase 2: Optimization (Completed)
-**Goal:** Replace Python components in the "Hot Loop" (Scanner) with Native Mojo/C.
-- [x] **FFI:** Implemented `src/scanner/c_regex.mojo` (Native `libc` binding).
-- [x] **Parallelism:** Implemented `src/scanner/walker.mojo` with `algorithm.parallelize`.
-- [x] **Benchmark:** Achieved ~19k files/sec (Scanner).
+### Phase 1-4: MVP (Completed)
+- [x] Directory walker with parallel scanning (~20k files/sec)
+- [x] POSIX regex via libc FFI
+- [x] ONNX cross-encoder reranking (mxbai-rerank-xsmall-v1)
+- [x] Tree-sitter extraction (Python, JS, TS, Go, Rust)
+- [x] JSON output for agents
+- [x] Auto model download on first run
 
-## Phase 3: Smart Context (Completed)
-**Goal:** Upgrade the "Rerank" phase to provide "Agent-Ready" context.
-- [x] **Architecture:** Implemented `src/inference/bridge.py` (Python Bridge).
-- [x] **Tree-sitter:** Integrated Python bindings for extraction.
-- [x] **Extraction:** Implemented `ContextExtractor` for Python, JS, TS, Go, Rust.
-- [x] **Output:** Implemented JSON output for Agents.
+### Phase 5: Distribution (Completed)
+- [x] Mojo Python extension module (`_scanner.so`)
+- [x] Python CLI entry point (`pip install hygrep`)
+- [x] Platform-specific wheel tags
+- [x] Removed legacy Mojo CLI
 
-## Phase 4: Polish & Robustness (Completed)
-**Goal:** Professional CLI Experience & Edge Case Handling.
-- [x] **Fallback Strategy:** Implemented "Sliding Window" (Match +/- 5 lines) for non-code/large files.
-- [x] **Query Expansion:** Implemented heuristic ("login logic" -> "login|logic") to improve Recall.
-- [x] **Auto-Setup:** Added automatic model downloading on first run.
-- [x] **Distribution:** Created `hygrep.sh` wrapper to handle environment/linking issues.
-- [x] **Optimization:** Batched Reranking (32 items) and Mojo Walker string optimization.
+## Current: Phase 6 - Performance & Polish (v0.2.0)
 
-## Phase 5: Future (Backlog)
-- [ ] **Binary Distribution:** Static linking of `libpython`?
-- [ ] **Advanced Query Expansion:** Use local LLM to generate synonyms.
-- [ ] **Mmap:** Zero-copy file reading in Scanner.
+**Goal:** 2-3x faster inference, better CLI UX
+
+### Performance (P0)
+| Task | Impact | Status |
+|------|--------|--------|
+| Thread optimization (4 threads) | 2.5x inference speedup | TODO |
+| Candidate limit (--max-candidates) | Cap work before rerank | TODO |
+| Graph optimization level | Minor speedup | TODO |
+
+**Benchmarks (21 candidates, CPU):**
+```
+Threads=1: 5537ms
+Threads=2: 3490ms (1.6x)
+Threads=4: 2260ms (2.5x) ← optimal
+Threads=8: 2146ms (diminishing)
+```
+
+### CLI Features (P1)
+| Task | Use Case | Status |
+|------|----------|--------|
+| `--fast` mode | Skip reranking, pure grep | TODO |
+| `-t/--type` filter | Limit to file types | TODO |
+| `--min-score` threshold | Filter low-confidence | TODO |
+| Better progress output | Show file count, timing | TODO |
+
+## Phase 7: Features (v0.3.0)
+
+**Goal:** Feature parity with modern search tools
+
+| Feature | Description |
+|---------|-------------|
+| Gitignore support | Parse .gitignore files |
+| Context lines `-C N` | Show surrounding code |
+| `--stats` flag | Show timing breakdown |
+| Config file `.hygreprc` | Persistent options |
+| JSONL streaming | Process results incrementally |
+
+## Phase 8: Hardware Acceleration (v0.4.0+)
+
+**Goal:** Leverage GPU/NPU for inference
+
+### macOS (Apple Silicon)
+- CoreML requires custom onnxruntime build
+- Alternative: MLX framework
+- Expected: 3-5x speedup
+
+### Linux/Windows
+- CUDA via `onnxruntime-gpu`
+- ROCm for AMD GPUs
+- Expected: 5-10x (overhead for small batches)
+
+### Model Options
+| Model | Quality | Speed | Size |
+|-------|---------|-------|------|
+| mxbai-rerank-xsmall-v1 | Good | Fast | 40MB | **Current** |
+| mxbai-rerank-base-v2 | Better | 2x slower | 110MB |
+| jina-reranker-v1-tiny-en | OK | Fastest | 33MB |
+
+**Decision:** Keep xsmall-v1 default, add `--model` flag later.
+
+## Non-Goals
+
+- Indexing/persistence (stay stateless)
+- Background daemon (keep CLI simple)
+- Custom model training (use pretrained)
+- Server mode (CLI-first design)
