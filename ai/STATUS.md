@@ -1,26 +1,36 @@
 ## Current State
+
 | Metric | Value | Updated |
 |--------|-------|---------|
-| Phase | 5 (Maintenance) | 2025-12-01 |
-| Status | Stable / Complete | 2025-12-01 |
+| Phase | 5 (Refactoring) | 2025-12-01 |
+| Status | Active Development | 2025-12-01 |
 | Perf | ~19k files/sec (Recall) | 2025-12-01 |
-| Mojo | v0.25.7 (Stable) | 2025-12-01 |
+| Mojo | v25.7 | 2025-12-01 |
 
 ## Active Work
-None. Project is feature complete for MVP+.
 
-## Accomplished
-- **Optimization:**
-    - Implemented Batched Inference (Batch Size 32) in Python bridge.
-    - Optimized Mojo Walker to avoid redundant string copies.
-    - Hardened Scanner against binary files and ignored directories.
-- **Robustness:**
-    - Implemented Sliding Window fallback for context extraction.
-    - Implemented Query Expansion (Phrase -> OR Regex).
-    - Implemented Automatic Model Download on first run.
-- **UX:**
-    - Created `hygrep.sh` wrapper for easy execution.
-    - Verified JSON output for Agents.
+Code review completed. Phase 1 refactoring in progress:
+- P1: File size limit, mask initialization (crash prevention)
+- P2: Path validation, --help flag, Python version detection
+
+## Blockers
+
+None.
+
+## What Worked
+
+- Recall→Rerank architecture is solid
+- Parallel scanning achieves target performance
+- Tree-sitter extraction covers 6 languages
+
+## What Didn't Work
+
+- Double file reads (scanner + extractor) - inefficient
+- Hardcoded Python versions - fragile
+- Missing CLI polish (--help, validation)
 
 ## Next Steps
-- None immediate. Ready for release/usage.
+
+1. Complete Phase 1 issues (see `bd list --status=open`)
+2. Phase 2: Circular symlinks, stderr, --top-k
+3. Phase 3: Performance (avoid double reads, parallel extraction)

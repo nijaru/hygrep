@@ -1,71 +1,148 @@
 # HyperGrep (hygrep)
 
-**Agent-Native search tool — fast enough for humans, structured for agents.**
+**Hybrid search CLI: grep speed + LLM intelligence. Stateless, no indexing.**
 
-## Project Overview
+## Quick Reference
 
-**hygrep** is a high-performance CLI tool designed to replace `grep` for the AI era. It combines the raw speed of regex-based directory scanning (Recall) with the semantic understanding of local Large Language Models (Rerank).
+```bash
+pixi run build                      # Build binary
+pixi run test                       # Run tests
+pixi run ./hygrep "query" ./src     # Search
+pixi run ./hygrep "query" . --json  # Agent output
+```
 
-## Core Architecture: "Hyper Hybrid"
+## Architecture
 
-The architecture follows a strict **Recall -> Rerank** pipeline.
+```
+Query → [Recall: Mojo Scanner] → candidates → [Rerank: ONNX] → results
+              ↓                                    ↓
+        Parallel regex                    Tree-sitter extraction
+        ~20k files/sec                    Cross-encoder scoring
+```
 
-1.  **Hyper Scanner (Recall)**
-    *   **Role:** Find ~100 candidate files from 10,000+ files.
-    *   **Constraint:** **Must be Pure Mojo/C.** No Python Runtime overhead allowed per file.
-    *   **Mechanism:** Parallel Directory Walk + `libc` Regex (POSIX).
-2.  **Smart Context Processor (Extraction)**
-    *   **Role:** Extract logical units (Functions/Classes) from candidates.
-    *   **Mechanism:** Tree-sitter (Code) / Heuristic (Docs).
-3.  **Inference Engine (Rerank)**
-    *   **Role:** Score candidates by semantic relevance to the query.
-    *   **Constraint:** Latency < 200ms total.
-    *   **Mechanism:** ONNX Runtime (via Python) + `mxbai-rerank-xsmall-v1` (Cross-Encoder).
-4.  **Agent Formatter**
-    *   **Role:** Output structured JSON for tool use.
+| Stage | Constraint | Implementation |
+|-------|------------|----------------|
+| Scanner | Pure Mojo/C, no Python | `src/scanner/walker.mojo` + `c_regex.mojo` |
+| Extraction | Tree-sitter AST | `src/inference/context.py` |
+| Reranking | <200ms latency | `src/inference/bridge.py` (ONNX batched) |
 
 ## Project Structure
 
-| Directory | Purpose |
-|-----------|---------|
-| `src/` | Mojo source code root |
-| `src/scanner/` | **Hyper Scanner** (Pure Mojo/FFI + Parallel) |
-| `src/inference/` | **Inference Engine** (Python Interop/ONNX/Tree-sitter) |
-| `models/` | Downloaded ONNX models (gitignored) |
-| `ai/` | **AI Context** (See below) |
-
-## AI Context & Workflow
-
-Agents **MUST** follow this workflow:
-
-1.  **Read State:** Check `ai/STATUS.md` for current focus and blockers.
-2.  **Check Plan:** Refer to `ai/PLAN.md` for the active phase and next steps.
-3.  **Update Context:** After completing a task, update `ai/STATUS.md`.
-
-### Reference Files
-- `ai/DECISIONS.md`: Architectural Constraints & Decisions (Read before refactoring).
-- `ai/RESEARCH.md`: Links to research (Models, FFI patterns).
+```
+src/
+├── scanner/
+│   ├── walker.mojo      # Parallel directory traversal
+│   ├── c_regex.mojo     # POSIX regex FFI (libc)
+│   └── py_regex.mojo    # Python regex fallback (unused)
+├── inference/
+│   ├── reranker.mojo    # Python bridge wrapper
+│   ├── bridge.py        # ONNX inference + orchestration
+│   └── context.py       # Tree-sitter extraction
+cli.mojo                 # Entry point
+tests/                   # Mirrors src/ structure
+models/                  # ONNX models (gitignored, auto-downloaded)
+ai/                      # Session context
+```
 
 ## Technology Stack
 
-| Component | Technology | Note |
-|-----------|------------|------|
-| **Language** | Mojo (Stable v0.25.7) | Primary systems language |
-| **Inference** | ONNX Runtime | via Python Interop |
-| **Recall** | `libc` Regex | FFI + Parallel |
-| **Context** | Tree-sitter | via Python Interop (Planned) |
-| **Model** | `mxbai-rerank-xsmall-v1` | Quantized INT8 (~40MB) |
-| **Package Mgr** | `pixi` | Handles Python/Mojo deps |
+| Component | Version | Notes |
+|-----------|---------|-------|
+| Mojo | 25.7.* | Via MAX package |
+| Python | >=3.11, <3.14 | Interop for inference |
+| ONNX Runtime | >=1.16 | Model execution |
+| Tree-sitter | >=0.24 | AST parsing (6 languages) |
+| Model | mxbai-rerank-xsmall-v1 | INT8 quantized, ~40MB |
 
-## Commands
+## Mojo Patterns (from modular/stdlib)
 
-```bash
-# Build
-pixi run build
+### FFI for C Interop
 
-# Test
-pixi run test
+```mojo
+# Use sys.ffi types for C compatibility
+from sys.ffi import c_char, c_int, external_call
 
-# Run Search (Auto-Hybrid)
-./hygrep "query" ./src
+# Proper external_call signature
+fn regcomp(
+    preg: UnsafePointer[regex_t],
+    pattern: UnsafePointer[c_char],
+    cflags: c_int,
+) -> c_int:
+    return external_call["regcomp", c_int](preg, pattern, cflags)
 ```
+
+### Memory Management
+
+```mojo
+# Always pair alloc with free (use defer for safety)
+var buffer = alloc[UInt8](size)
+defer: buffer.free()
+
+# Initialize allocated memory explicitly
+for i in range(size):
+    buffer[i] = 0
+```
+
+### Error Handling
+
+```mojo
+# Use raises for recoverable errors
+fn scan_directory(path: Path) raises -> List[Path]:
+    if not path.exists():
+        raise Error("Path does not exist: " + String(path))
+    # ...
+```
+
+### Parallel Patterns
+
+```mojo
+# Use @parameter for worker functions
+@parameter
+fn worker(i: Int):
+    result[i] = process(items[i])
+
+parallelize[worker](num_items)
+```
+
+## Code Standards
+
+| Aspect | Standard |
+|--------|----------|
+| Formatting | `mojo format` (automatic) |
+| Imports | stdlib → external → local |
+| Functions | Docstrings on public APIs |
+| Memory | Explicit cleanup, no leaks |
+| Errors | `raises` for recoverable, `abort` for fatal |
+
+## Verification
+
+| Check | Command | Pass Criteria |
+|-------|---------|---------------|
+| Build | `pixi run build` | Zero errors |
+| Test | `pixi run test` | All pass |
+| Smoke | `./hygrep "test" ./src` | Returns results |
+
+## Known Limitations
+
+| Issue | Impact | Status |
+|-------|--------|--------|
+| Circular symlinks | Infinite loop | Open |
+| 128-byte regex leak | Negligible for CLI | Mojo v25.7 limitation |
+| Python version coupling | Hardcoded 3.11-3.13 | Needs fix |
+
+## AI Context
+
+**Read order:** `ai/STATUS.md` → `ai/DECISIONS.md` → `ai/ROADMAP.md`
+
+| File | Purpose |
+|------|---------|
+| `ai/STATUS.md` | Current state, blockers |
+| `ai/DECISIONS.md` | Architectural decisions |
+| `ai/ROADMAP.md` | Phases, milestones |
+| `ai/research/` | External research |
+
+## External References
+
+- Mojo stdlib patterns: `~/github/modular/modular/mojo/stdlib/`
+- FFI examples: `stdlib/sys/ffi.mojo`, `stdlib/sys/_libc.mojo`
+- Memory safety: `stdlib/memory/unsafe_pointer.mojo`

@@ -17,8 +17,7 @@
 **Decision:** Tiered Extraction Strategy (Tree-sitter -> Fallback).
 **Why:** Agents need logical blocks (functions), not just lines.
 - **Tier 1 (Code):** Use Tree-sitter (in Python stage) to extract full functions/classes for candidates.
-- **Tier 2 (Docs):** Split Markdown/JSON by headers or structure.
-- **Tier 3 (Fallback):** Sliding window (+/- N lines) for unsupported files.
+- **Tier 2 (Docs):** Sliding window (+/- 5 lines) for unsupported files.
 
 ## 4. Optimization Strategy
 **Decision:** Parallelize IO, Native Regex
@@ -31,3 +30,12 @@
 **Why:**
 - Mojo's `List` is not thread-safe for concurrent writes.
 - Allocating a boolean mask (thread-safe writing by index) prevents locks/contention.
+
+## 6. Distribution Strategy (2025-12-01)
+**Decision:** Bundle Python Environment (Tarball) vs Python Package.
+**Choice:** **Tarball Bundle** (Short term) -> **Pure Mojo/C Rewrite** (Long term).
+**Reasoning:**
+- We cannot easily ship as a Python package because we want Mojo to be the entry point (fast startup).
+- If Python starts first, we lose the "instant grep" feel.
+- **Short Term:** Ship binary + stripped `.pixi` environment + wrapper script.
+- **Long Term:** Rewrite `src/inference/bridge.py` in Mojo using C-FFI for ONNX Runtime and Tree-sitter. This will eliminate `libpython` dependency entirely, resulting in a truly standalone binary.
