@@ -1,8 +1,8 @@
 [workspace]
-name = "hgrep"
+name = "hygrep"
 version = "0.1.0"
-description = "Agent-Native search tool"
-authors = ["Your Name <you@example.com>"]
+description = "Hybrid grep: fast scanning + neural reranking"
+authors = ["nijaru"]
 channels = ["conda-forge", "https://conda.modular.com/max/", "pytorch"]
 platforms = ["osx-arm64", "linux-64"]
 
@@ -23,6 +23,13 @@ tree-sitter-rust = ">=0.23.0"
 tree-sitter-go = ">=0.23.0"
 
 [tasks]
+# Build Mojo scanner as Python extension
+build-ext = "mojo build src/scanner/_scanner.mojo --emit shared-lib -o src/hygrep/_scanner.so"
+# Legacy: Build standalone Mojo CLI
 build = "mojo build cli.mojo -o hygrep"
-run = "mojo cli.mojo"
+# Run Python CLI
+hygrep = { cmd = "python -m hygrep.cli", env = { PYTHONPATH = "src" } }
+# Run tests
 test = "mojo -I . tests/test_regex_smoke.mojo && mojo -I . tests/test_walker.mojo"
+# Build wheel (after build-ext)
+build-wheel = "python -m build --wheel"

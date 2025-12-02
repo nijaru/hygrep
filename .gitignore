@@ -23,4 +23,7 @@ ai/tmp/
 *.egg-info
 # magic environments
 .magic
-hygrep
+# Compiled binary (root level only)
+/hygrep
+# Compiled extensions
+*.so

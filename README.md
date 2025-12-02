@@ -1,53 +1,71 @@
 # hygrep
 
-> **The Hybrid Search CLI: `grep` speed, LLM intelligence.**
+> **Hybrid grep: fast scanning + neural reranking**
 
-`hygrep` is a next-generation command-line search tool designed for developers and AI agents alike. It combines the instant performance of regex-based directory scanning with the semantic understanding of local Large Language Models (LLMs).
+`hygrep` combines the instant performance of parallel regex scanning (Mojo) with semantic understanding via neural reranking (ONNX).
 
-**Zero Setup. Zero Indexing. Local Inference.**
+**Zero indexing. Local inference. ~20k files/sec.**
 
 ## Features
 
-*   **Smart Context:** Extracts full functions and classes (Python, JS, TS, Go, Rust) instead of just matching lines.
-*   **Semantic Reranking:** Understands "auth" matches "login".
-*   **Agent Ready:** Outputs structured JSON with `--json`.
-*   **Fast:** Scans 10,000+ files/sec (Mojo Native Scanner).
-*   **Robust:** Ignores `node_modules`, binaries, and hidden files by default.
+- **Smart Context:** Extracts full functions/classes (Python, JS, TS, Go, Rust)
+- **Semantic Reranking:** "auth" matches "login"
+- **Agent Ready:** JSON output with `--json`
+- **Fast:** Parallel Mojo scanner, ~20k files/sec
+- **Robust:** Ignores node_modules, binaries, hidden files
 
 ## Installation
 
-**Prerequisites:**
-- [Pixi](https://pixi.sh/) (Package Manager)
+### From Source (with Pixi)
 
 ```bash
 git clone https://github.com/nijaru/hygrep
 cd hygrep
 pixi install
-pixi run build
+pixi run build-ext   # Build Mojo scanner extension
+pixi run hygrep "query" ./src
+```
+
+### From PyPI (coming soon)
+
+```bash
+pip install hygrep
+# or
+uv tool install hygrep
 ```
 
 ## Usage
 
-Run inside the Pixi environment:
-
 ```bash
-pixi run ./hygrep "login logic" ./src
+# Basic search
+hygrep "login logic" ./src
+
+# Limit results
+hygrep "auth" . -n 5
+
+# JSON output for agents
+hygrep "error handling" ./src --json
+
+# Quiet mode (no progress)
+hygrep "test" . -q
 ```
 
-### Agent Search (JSON)
-Get structured output for tool use.
+### Output
 
-```bash
-pixi run ./hygrep "login logic" ./src --json
+```
+src/auth.py:42 [function] login (0.89)
+src/session.py:15 [function] validate_token (0.76)
 ```
 
-**Output:**
+### JSON Output
+
 ```json
 [
   {
     "file": "src/auth.py",
     "type": "function",
     "name": "login",
+    "start_line": 42,
     "score": 0.89,
     "content": "def login(user): ..."
   }
@@ -56,9 +74,26 @@ pixi run ./hygrep "login logic" ./src --json
 
 ## Architecture
 
-- **Scanner (Recall):** Pure Mojo + libc Regex. Parallel directory walker.
-- **Bridge:** Python bridge to ONNX Runtime & Tree-sitter.
-- **Model:** `mxbai-rerank-xsmall-v1` (Quantized).
+```
+Query → [Mojo Scanner] → candidates → [ONNX Reranker] → results
+              ↓                              ↓
+        Parallel regex              Tree-sitter extraction
+        ~20k files/sec              Cross-encoder scoring
+```
+
+| Component | Implementation |
+|-----------|----------------|
+| Scanner | Mojo Python extension (`_scanner.so`) |
+| Extraction | Tree-sitter (Python, JS, TS, Go, Rust) |
+| Reranking | ONNX Runtime (`mxbai-rerank-xsmall-v1`) |
+
+## Development
+
+```bash
+pixi run build-ext   # Build Mojo extension
+pixi run hygrep      # Run CLI
+pixi run test        # Run tests
+```
 
 ## License
 

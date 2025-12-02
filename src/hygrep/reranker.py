@@ -1,0 +1,139 @@
+"""Reranker - ONNX cross-encoder for semantic ranking."""
+
+import json
+import os
+from pathlib import Path
+
+import numpy as np
+import onnxruntime as ort
+from tokenizers import Tokenizer
+from concurrent.futures import ThreadPoolExecutor
+
+from .extractor import ContextExtractor
+
+
+def ensure_models(model_path: str, tokenizer_path: str):
+    """Download models if not present."""
+    if os.path.exists(model_path) and os.path.exists(tokenizer_path):
+        return
+
+    print("First run detected: Downloading AI models (40MB)...")
+    try:
+        from huggingface_hub import hf_hub_download
+        import shutil
+
+        MODEL_REPO = "mixedbread-ai/mxbai-rerank-xsmall-v1"
+        MODEL_FILE = "onnx/model_quantized.onnx"
+        TOKENIZER_FILE = "tokenizer.json"
+
+        model_dir = os.path.dirname(model_path)
+        if model_dir and not os.path.exists(model_dir):
+            os.makedirs(model_dir)
+
+        print(f"Fetching {MODEL_REPO}...")
+        m_path = hf_hub_download(repo_id=MODEL_REPO, filename=MODEL_FILE)
+        t_path = hf_hub_download(repo_id=MODEL_REPO, filename=TOKENIZER_FILE)
+
+        shutil.copy(m_path, model_path)
+        shutil.copy(t_path, tokenizer_path)
+        print("Download complete.")
+    except Exception as e:
+        print(f"Failed to download models: {e}")
+
+
+class Reranker:
+    """Cross-encoder reranker using ONNX Runtime."""
+
+    def __init__(self, model_dir: str = "models"):
+        model_path = os.path.join(model_dir, "reranker.onnx")
+        tokenizer_path = os.path.join(model_dir, "tokenizer.json")
+
+        ensure_models(model_path, tokenizer_path)
+
+        self.extractor = ContextExtractor()
+
+        # Load tokenizer
+        self.tokenizer = Tokenizer.from_file(tokenizer_path)
+        self.tokenizer.enable_padding(length=512)
+        self.tokenizer.enable_truncation(max_length=512)
+
+        # Load model
+        self.session = ort.InferenceSession(model_path)
+
+    def search(self, query: str, file_contents: dict, top_k: int = 10) -> list:
+        """
+        Full pipeline: Extract -> Rerank.
+
+        Args:
+            query: Search query
+            file_contents: Dict mapping file paths to contents
+            top_k: Number of results to return
+
+        Returns:
+            List of ranked results
+        """
+        candidates = []
+
+        # 1. Extraction Phase - parallel tree-sitter parsing
+        def extract_file(item: tuple) -> list:
+            path, content = item
+            return [(path, block) for block in self.extractor.extract(path, query, content=content)]
+
+        items = list(file_contents.items())
+        with ThreadPoolExecutor(max_workers=min(4, len(items))) as executor:
+            all_blocks = list(executor.map(extract_file, items))
+
+        # Flatten and build candidates
+        for file_blocks in all_blocks:
+            for path, block in file_blocks:
+                text_to_score = f"{block['type']} {block['name']}: {block['content']}"
+                candidates.append({
+                    "file": path,
+                    "type": block["type"],
+                    "name": block["name"],
+                    "start_line": block["start_line"],
+                    "content": block["content"],
+                    "score_text": text_to_score,
+                })
+
+        if not candidates:
+            return []
+
+        # 2. Reranking Phase (Batched)
+        BATCH_SIZE = 32
+        all_logits = []
+
+        for i in range(0, len(candidates), BATCH_SIZE):
+            batch = candidates[i : i + BATCH_SIZE]
+            pairs = [(query, c["score_text"]) for c in batch]
+
+            encodings = self.tokenizer.encode_batch(pairs)
+
+            input_ids = np.array([e.ids for e in encodings], dtype=np.int64)
+            attention_mask = np.array([e.attention_mask for e in encodings], dtype=np.int64)
+            token_type_ids = np.array([e.type_ids for e in encodings], dtype=np.int64)
+
+            input_names = [x.name for x in self.session.get_inputs()]
+            inputs = {
+                input_names[0]: input_ids,
+                input_names[1]: attention_mask,
+            }
+            if len(input_names) > 2:
+                inputs[input_names[2]] = token_type_ids
+
+            res = self.session.run(None, inputs)
+            all_logits.extend(res[0].flatten())
+
+        # 3. Score and sort
+        scored_results = []
+        for i, score in enumerate(all_logits):
+            cand = candidates[i]
+            # Sigmoid normalization
+            normalized_score = 1.0 / (1.0 + np.exp(-float(score)))
+            cand["score"] = round(float(normalized_score), 4)
+            del cand["score_text"]
+            scored_results.append(cand)
+
+        scored_results.sort(key=lambda x: x["score"], reverse=True)
+
+        return scored_results[:top_k]
