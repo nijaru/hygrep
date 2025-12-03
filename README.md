@@ -1,6 +1,6 @@
 # hygrep
 
-**Hybrid grep: fast scanning + neural reranking**
+**Hyper hybrid grep: fast scanning + neural reranking**
 
 ```bash
 pip install hygrep
