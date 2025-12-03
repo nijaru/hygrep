@@ -45,8 +45,8 @@ def get_cache_dir() -> Path | None:
                 config = tomllib.load(f)
             if cache_dir := config.get("cache_dir"):
                 return Path(cache_dir).expanduser()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Warning: Failed to load config: {e}", file=sys.stderr)
 
     return None  # Use shared HF cache
 
@@ -94,8 +94,6 @@ def get_model_paths() -> tuple[str, str]:
         )
     except LocalEntryNotFoundError:
         # First use - download model
-        import sys
-
         print(f"Downloading model ({MODEL_REPO})...", file=sys.stderr)
         model_path = hf_hub_download(
             repo_id=MODEL_REPO,

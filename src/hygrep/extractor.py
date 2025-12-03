@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 from typing import Any, Dict, List, Optional
 
 import tree_sitter_bash
@@ -191,7 +192,7 @@ class ContextExtractor:
                 if lang_name and lang_name in QUERIES:
                     self.queries[ext] = Query(lang, QUERIES[lang_name])
             except Exception as e:
-                print(f"Warning: Failed to load parser for {ext}: {e}")
+                print(f"Warning: Failed to load parser for {ext}: {e}", file=sys.stderr)
 
     def _ext_to_lang_name(self, ext: str) -> Optional[str]:
         """Map file extension to language name for queries."""
@@ -308,7 +309,7 @@ class ContextExtractor:
             cursor = QueryCursor(q_obj)
             captures = cursor.captures(tree.root_node)
         except Exception as e:
-            print(f"Query error for {file_path}: {e}")
+            print(f"Query error for {file_path}: {e}", file=sys.stderr)
             return self._fallback_sliding_window(file_path, content, query)
 
         blocks = []

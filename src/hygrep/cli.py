@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -34,7 +35,8 @@ def load_config() -> dict:
     try:
         with open(CONFIG_PATH, "rb") as f:
             return tomllib.load(f)
-    except Exception:
+    except Exception as e:
+        print(f"Warning: Failed to load config from {CONFIG_PATH}: {e}", file=sys.stderr)
         return {}
 
 
@@ -142,7 +144,7 @@ def load_gitignore(root: Path) -> pathspec.PathSpec | None:
 
 def is_regex_pattern(query: str) -> bool:
     """Check if query contains regex metacharacters."""
-    return any(c in query for c in "*()[]\\|+?^$")
+    return any(c in query for c in r"*()[]\\|+?^$.{}")
 
 
 BASH_COMPLETION = """
@@ -449,7 +451,10 @@ def main():
     # Query expansion: "login auth" -> "login|auth" for better recall
     scanner_query = args.query
     if " " in args.query and not is_regex_pattern(args.query):
-        scanner_query = args.query.replace(" ", "|")
+        # Escape regex metacharacters in each word, then join with |
+        words = args.query.split()
+        escaped_words = [re.escape(w) for w in words]
+        scanner_query = "|".join(escaped_words)
 
     # 1. Recall phase - Try Mojo scanner, fall back to Python
     try:
@@ -525,6 +530,7 @@ def main():
 
     # 2. Rerank phase (or fast mode)
     rerank_start = time.perf_counter()
+    reranker = None  # Track for stats output
     if args.fast:
         # Fast mode: skip neural reranking, just return grep matches with extraction
         from .extractor import ContextExtractor
@@ -614,7 +620,7 @@ def main():
         print(f"  Filter: {stats['filter_ms']:>5}ms", file=sys.stderr)
         print(f"  Rerank: {stats['rerank_ms']:>5}ms", file=sys.stderr)
         print(f"  Total:  {stats['total_ms']:>5}ms", file=sys.stderr)
-        if not args.fast and "reranker" in dir():
+        if reranker is not None:
             provider = reranker.provider.replace("ExecutionProvider", "")
             print(f"  Device: {provider}", file=sys.stderr)
 

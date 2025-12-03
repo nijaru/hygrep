@@ -22,7 +22,11 @@ def get_platform_tag():
             return "manylinux_2_17_x86_64"
         elif machine == "aarch64":
             return "manylinux_2_17_aarch64"
-    return "any"
+
+    raise RuntimeError(
+        f"Unsupported platform: {system}/{machine}. "
+        "hygrep requires macOS (arm64/x86_64) or Linux (x86_64/aarch64)."
+    )
 
 
 class PlatformWheelHook(BuildHookInterface):
