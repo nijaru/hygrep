@@ -3,7 +3,7 @@
 | Metric | Value | Updated |
 |--------|-------|---------|
 | Phase | 9 (Released) | 2025-12-03 |
-| Version | 0.0.2 (PyPI) | 2025-12-03 |
+| Version | 0.0.3 (PyPI) | 2025-12-03 |
 | PyPI | https://pypi.org/project/hygrep/ | 2025-12-03 |
 | Perf | ~20k files/sec (Mojo) | 2025-12-02 |
 | Inference | ~2s/100 candidates (CPU) | 2025-12-02 |
@@ -12,9 +12,13 @@
 
 ## Active Work
 
-None. v0.0.2 released.
+None. v0.0.3 released.
 
 ## Completed (Recent)
+
+### v0.0.3 Release (2025-12-03)
+- Suppress ONNX Runtime warnings on macOS (CoreML capability + Context leak)
+- Skip CoreML provider (CPU fast enough for model size)
 
 ### v0.0.2 Release (2025-12-03)
 - `hygrep model [install|clean]` commands
