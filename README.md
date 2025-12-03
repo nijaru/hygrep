@@ -24,7 +24,7 @@ uv tool install hygrep
 pipx install hygrep
 ```
 
-First search downloads the model (~83MB, cached in `./models/`).
+First search downloads the model (~83MB, cached in `~/.cache/huggingface/`).
 
 ## Usage
 
@@ -35,6 +35,9 @@ hygrep "auth" . --fast          # Skip reranking (instant grep)
 hygrep "test" . -t py,js        # Filter by file type
 hygrep "config" . --json        # JSON output for agents/scripts
 hygrep info                     # Check installation status
+hygrep model                    # Show model info
+hygrep model install            # Pre-download model (for CI/offline)
+hygrep model clean              # Remove cached model
 ```
 
 Run `hygrep --help` for all options.
@@ -58,6 +61,7 @@ Optional `~/.config/hygrep/config.toml`:
 n = 10
 color = "always"
 exclude = ["*.test.js", "tests/*"]
+cache_dir = "~/.cache/hygrep"  # Custom model cache (default: shared HF cache)
 ```
 
 ## Supported Languages

@@ -63,17 +63,11 @@ def _setup_hf_cache() -> Path:
     return Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface"))
 
 
-class ModelNotInstalledError(Exception):
-    """Raised when model is not installed and local_files_only=True."""
-
-    pass
-
-
 def get_model_paths() -> tuple[str, str]:
-    """Get paths to cached model files (offline, no network).
+    """Get paths to model files, downloading on first use if needed.
 
-    Raises:
-        ModelNotInstalledError: If model is not installed
+    Uses local cache when available (fast, offline). Downloads automatically
+    on first use only.
 
     Returns:
         Tuple of (model_path, tokenizer_path)
@@ -84,6 +78,7 @@ def get_model_paths() -> tuple[str, str]:
     from huggingface_hub.utils import LocalEntryNotFoundError
 
     try:
+        # Try local cache first (fast, no network)
         model_path = hf_hub_download(
             repo_id=MODEL_REPO,
             filename=MODEL_FILE,
@@ -95,9 +90,19 @@ def get_model_paths() -> tuple[str, str]:
             local_files_only=True,
         )
     except LocalEntryNotFoundError:
-        raise ModelNotInstalledError(
-            "Model not installed. Run 'hygrep model install' first."
-        ) from None
+        # First use - download model
+        import sys
+
+        print(f"Downloading model ({MODEL_REPO})...", file=sys.stderr)
+        model_path = hf_hub_download(
+            repo_id=MODEL_REPO,
+            filename=MODEL_FILE,
+        )
+        tokenizer_path = hf_hub_download(
+            repo_id=MODEL_REPO,
+            filename=TOKENIZER_FILE,
+        )
+        print("Model ready.", file=sys.stderr)
 
     return model_path, tokenizer_path
 
