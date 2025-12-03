@@ -15,7 +15,13 @@ except ImportError:
 import pathspec
 
 from . import __version__
-from .reranker import MODEL_REPO, _models_valid, get_execution_providers
+from .reranker import (
+    MODEL_REPO,
+    clean_model_cache,
+    download_model,
+    get_execution_providers,
+    get_model_info,
+)
 
 # Config file location
 CONFIG_PATH = Path.home() / ".config" / "hygrep" / "config.toml"
@@ -43,13 +49,11 @@ def show_info():
     print()
 
     # Check models
-    model_path = "models/reranker.onnx"
-    tokenizer_path = "models/tokenizer.json"
-    if _models_valid(model_path, tokenizer_path):
-        size_mb = os.path.getsize(model_path) / 1024 / 1024
-        print(f"Models:    OK ({size_mb:.0f}MB)")
+    info = get_model_info()
+    if info["installed"]:
+        print(f"Model:     OK ({info['size_mb']:.0f}MB)")
     else:
-        print("Models:    Not installed (run any search to download)")
+        print("Model:     Not installed (run `hygrep model install`)")
 
     # Check device/provider
     providers = get_execution_providers()
@@ -70,7 +74,10 @@ def show_info():
     # Check tree-sitter languages
     try:
         from .extractor import LANGUAGE_CAPSULES
-        langs = [ext.lstrip(".") for ext in LANGUAGE_CAPSULES.keys() if not ext.startswith(".🔥")]
+        langs = [
+            ext.lstrip(".") for ext in LANGUAGE_CAPSULES.keys()
+            if not ext.startswith(".🔥")
+        ]
         print(f"Languages: {', '.join(langs)}")
     except ImportError:
         print("Languages: Error loading tree-sitter")
@@ -82,7 +89,12 @@ def show_info():
         print("Config:    (none)")
 
     print()
-    print(f"Model: {MODEL_REPO}")
+    print(f"Repo:      {MODEL_REPO}")
+    if info["cache_dir"]:
+        print(f"Cache:     {info['cache_dir']}")
+    else:
+        print("Cache:     ~/.cache/huggingface (shared)")
+
 
 # ANSI color codes
 class Colors:
@@ -320,6 +332,43 @@ def main():
     if args.query == "info":
         show_info()
         sys.exit(EXIT_MATCH)
+
+    # Handle 'hygrep model [action]' command
+    if args.query == "model":
+        action = args.path if args.path != "." else None
+        force = "--force" in sys.argv
+
+        if action == "install":
+            try:
+                download_model(force=force, quiet=False)
+                sys.exit(EXIT_MATCH)
+            except Exception as e:
+                print(f"Error: {e}", file=sys.stderr)
+                sys.exit(EXIT_ERROR)
+
+        elif action == "clean":
+            if clean_model_cache():
+                print("Model cache cleaned.", file=sys.stderr)
+                sys.exit(EXIT_MATCH)
+            else:
+                print("No cached model to clean.", file=sys.stderr)
+                sys.exit(EXIT_NO_MATCH)
+
+        else:
+            # Default: show model info
+            info = get_model_info()
+            print(f"Model: {info['repo']}")
+            if info["installed"]:
+                print(f"Status: Installed ({info['size_mb']:.0f}MB)")
+                print(f"Path: {info['model_path']}")
+            else:
+                print("Status: Not installed")
+                print("Run 'hygrep model install' to download.")
+            if info["cache_dir"]:
+                print(f"Cache: {info['cache_dir']}")
+            else:
+                print("Cache: ~/.cache/huggingface (shared)")
+            sys.exit(EXIT_MATCH if info["installed"] else EXIT_NO_MATCH)
 
     if not args.query:
         if args.json:

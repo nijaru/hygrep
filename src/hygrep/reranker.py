@@ -1,9 +1,10 @@
 """Reranker - ONNX cross-encoder for semantic ranking."""
 
-import json
 import os
+import shutil
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import numpy as np
 import onnxruntime as ort
@@ -14,62 +15,166 @@ from .extractor import ContextExtractor
 MODEL_REPO = "mixedbread-ai/mxbai-rerank-xsmall-v1"
 MODEL_FILE = "onnx/model_quantized.onnx"
 TOKENIZER_FILE = "tokenizer.json"
-MODEL_MIN_SIZE = 80_000_000  # ~83MB, sanity check
 
 
-def ensure_models(model_path: str, tokenizer_path: str):
-    """Download models if not present or corrupted."""
-    # Check if files exist and are valid
-    if _models_valid(model_path, tokenizer_path):
-        return
+def get_cache_dir() -> Path | None:
+    """Get custom cache directory if configured.
 
-    print("Downloading AI models (~83MB)...", file=sys.stderr)
+    Priority:
+    1. HYGREP_CACHE_DIR env var
+    2. cache_dir from config file
+    3. None (use default HF cache)
+
+    Returns:
+        Custom cache path, or None to use shared HF cache
+    """
+    if env_dir := os.environ.get("HYGREP_CACHE_DIR"):
+        return Path(env_dir).expanduser()
+
+    # Check config file
+    config_path = Path.home() / ".config" / "hygrep" / "config.toml"
+    if config_path.exists():
+        try:
+            try:
+                import tomllib
+            except ImportError:
+                import tomli as tomllib
+            with open(config_path, "rb") as f:
+                config = tomllib.load(f)
+            if cache_dir := config.get("cache_dir"):
+                return Path(cache_dir).expanduser()
+        except Exception:
+            pass
+
+    return None  # Use shared HF cache
+
+
+def _setup_hf_cache() -> Path:
+    """Configure HuggingFace cache if custom dir specified.
+
+    Returns:
+        The effective cache directory
+    """
+    custom_dir = get_cache_dir()
+    if custom_dir:
+        os.environ["HF_HOME"] = str(custom_dir)
+        return custom_dir
+
+    # Return default HF cache location
+    return Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface"))
+
+
+def get_model_paths(force_download: bool = False) -> tuple[str, str]:
+    """Get paths to model files, downloading if needed.
+
+    Returns:
+        Tuple of (model_path, tokenizer_path)
+    """
+    _setup_hf_cache()
+
+    from huggingface_hub import hf_hub_download
+
+    model_path = hf_hub_download(
+        repo_id=MODEL_REPO,
+        filename=MODEL_FILE,
+        force_download=force_download,
+    )
+    tokenizer_path = hf_hub_download(
+        repo_id=MODEL_REPO,
+        filename=TOKENIZER_FILE,
+        force_download=force_download,
+    )
+
+    return model_path, tokenizer_path
+
+
+def download_model(force: bool = False, quiet: bool = False) -> tuple[str, str]:
+    """Download model files.
+
+    Args:
+        force: Force re-download even if cached
+        quiet: Suppress progress messages
+
+    Returns:
+        Tuple of (model_path, tokenizer_path)
+    """
+    if not quiet:
+        print(f"Downloading model from {MODEL_REPO}...", file=sys.stderr)
+
+    model_path, tokenizer_path = get_model_paths(force_download=force)
+
+    if not quiet:
+        size_mb = os.path.getsize(model_path) / 1024 / 1024
+        print(f"Model ready ({size_mb:.0f}MB)", file=sys.stderr)
+
+    return model_path, tokenizer_path
+
+
+def get_model_info() -> dict:
+    """Get information about the cached model.
+
+    Returns:
+        Dict with model info (installed, path, size, repo)
+    """
+    cache_dir = get_cache_dir()
+    _setup_hf_cache()
+
+    info = {
+        "repo": MODEL_REPO,
+        "cache_dir": str(cache_dir) if cache_dir else None,
+        "installed": False,
+        "model_path": None,
+        "size_mb": None,
+    }
+
     try:
-        import shutil
+        from huggingface_hub import try_to_load_from_cache
 
-        from huggingface_hub import hf_hub_download
+        model_path = try_to_load_from_cache(
+            repo_id=MODEL_REPO,
+            filename=MODEL_FILE,
+        )
 
-        model_dir = os.path.dirname(model_path)
-        if model_dir and not os.path.exists(model_dir):
-            os.makedirs(model_dir)
+        if model_path and os.path.exists(model_path):
+            info["installed"] = True
+            info["model_path"] = model_path
+            info["size_mb"] = round(os.path.getsize(model_path) / 1024 / 1024, 1)
+    except Exception:
+        pass
 
-        print(f"Fetching {MODEL_REPO}...", file=sys.stderr)
-        m_path = hf_hub_download(repo_id=MODEL_REPO, filename=MODEL_FILE)
-        t_path = hf_hub_download(repo_id=MODEL_REPO, filename=TOKENIZER_FILE)
-
-        shutil.copy(m_path, model_path)
-        shutil.copy(t_path, tokenizer_path)
-
-        # Verify download
-        if not _models_valid(model_path, tokenizer_path):
-            raise RuntimeError("Downloaded files appear corrupted")
-
-        print("Download complete.", file=sys.stderr)
-    except Exception as e:
-        # Clean up partial downloads
-        for f in [model_path, tokenizer_path]:
-            if os.path.exists(f):
-                try:
-                    os.remove(f)
-                except OSError:
-                    pass
-        raise RuntimeError(f"Failed to download models: {e}") from e
+    return info
 
 
-def _models_valid(model_path: str, tokenizer_path: str) -> bool:
-    """Check if model files exist and appear valid."""
-    if not os.path.exists(model_path) or not os.path.exists(tokenizer_path):
-        return False
-    # Sanity check: model should be ~83MB
-    if os.path.getsize(model_path) < MODEL_MIN_SIZE:
-        return False
-    # Tokenizer should be valid JSON
+def clean_model_cache() -> bool:
+    """Remove cached model files.
+
+    Returns:
+        True if cache was cleaned, False if nothing to clean
+    """
+    _setup_hf_cache()
+
     try:
-        with open(tokenizer_path, 'r') as f:
-            json.load(f)
-    except (json.JSONDecodeError, OSError):
+        from huggingface_hub import scan_cache_dir
+
+        cache_info = scan_cache_dir()
+        deleted = False
+
+        for repo in cache_info.repos:
+            if repo.repo_id == MODEL_REPO:
+                # Delete all revisions of our model
+                for revision in repo.revisions:
+                    strategy = cache_info.delete_revisions(revision.commit_hash)
+                    strategy.execute()
+                    deleted = True
+
+        return deleted
+    except Exception:
+        # Fallback: if custom cache dir, delete it entirely
+        custom_dir = get_cache_dir()
+        if custom_dir and custom_dir.exists():
+            shutil.rmtree(custom_dir)
+            return True
         return False
-    return True
 
 
 def get_execution_providers() -> list:
@@ -95,11 +200,8 @@ def get_execution_providers() -> list:
 class Reranker:
     """Cross-encoder reranker using ONNX Runtime."""
 
-    def __init__(self, model_dir: str = "models", num_threads: int = 4):
-        model_path = os.path.join(model_dir, "reranker.onnx")
-        tokenizer_path = os.path.join(model_dir, "tokenizer.json")
-
-        ensure_models(model_path, tokenizer_path)
+    def __init__(self, num_threads: int = 4):
+        model_path, tokenizer_path = get_model_paths()
 
         self.extractor = ContextExtractor()
 
@@ -147,7 +249,10 @@ class Reranker:
         # 1. Extraction Phase - parallel tree-sitter parsing
         def extract_file(item: tuple) -> list:
             path, content = item
-            return [(path, block) for block in self.extractor.extract(path, query, content=content)]
+            return [
+                (path, block)
+                for block in self.extractor.extract(path, query, content=content)
+            ]
 
         items = list(file_contents.items())
         with ThreadPoolExecutor(max_workers=min(4, len(items))) as executor:
@@ -188,14 +293,18 @@ class Reranker:
             encodings = self.tokenizer.encode_batch(pairs)
 
             input_ids = np.array([e.ids for e in encodings], dtype=np.int64)
-            attention_mask = np.array([e.attention_mask for e in encodings], dtype=np.int64)
+            attention_mask = np.array(
+                [e.attention_mask for e in encodings], dtype=np.int64
+            )
 
             inputs = {
                 input_names[0]: input_ids,
                 input_names[1]: attention_mask,
             }
             if use_token_type_ids:
-                token_type_ids = np.array([e.type_ids for e in encodings], dtype=np.int64)
+                token_type_ids = np.array(
+                    [e.type_ids for e in encodings], dtype=np.int64
+                )
                 inputs[input_names[2]] = token_type_ids
 
             res = self.session.run(None, inputs)
