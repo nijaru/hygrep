@@ -41,6 +41,26 @@ def ensure_models(model_path: str, tokenizer_path: str):
         print(f"Failed to download models: {e}")
 
 
+def get_execution_providers() -> list:
+    """Auto-detect best available execution provider."""
+    available = ort.get_available_providers()
+
+    # Prefer GPU providers in order
+    preferred = [
+        'CUDAExecutionProvider',      # NVIDIA GPU (Linux/Windows)
+        'CoreMLExecutionProvider',    # Apple Neural Engine / GPU
+        'DmlExecutionProvider',       # DirectML (Windows)
+        'CPUExecutionProvider',       # Fallback
+    ]
+
+    providers = []
+    for p in preferred:
+        if p in available:
+            providers.append(p)
+
+    return providers if providers else ['CPUExecutionProvider']
+
+
 class Reranker:
     """Cross-encoder reranker using ONNX Runtime."""
 
@@ -62,7 +82,11 @@ class Reranker:
         sess_options.intra_op_num_threads = num_threads
         sess_options.inter_op_num_threads = 1
         sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        self.session = ort.InferenceSession(model_path, sess_options=sess_options)
+
+        # Auto-detect GPU providers
+        providers = get_execution_providers()
+        self.session = ort.InferenceSession(model_path, sess_options, providers=providers)
+        self.provider = self.session.get_providers()[0]  # Track which provider is active
 
     def search(
         self, query: str, file_contents: dict, top_k: int = 10, max_candidates: int = 100

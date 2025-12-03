@@ -454,6 +454,9 @@ def main():
         print(f"  Filter: {stats['filter_ms']:>5}ms", file=sys.stderr)
         print(f"  Rerank: {stats['rerank_ms']:>5}ms", file=sys.stderr)
         print(f"  Total:  {stats['total_ms']:>5}ms", file=sys.stderr)
+        if not args.fast and 'reranker' in dir():
+            provider = reranker.provider.replace('ExecutionProvider', '')
+            print(f"  Device: {provider}", file=sys.stderr)
 
     sys.exit(EXIT_MATCH)
 
