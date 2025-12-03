@@ -1,7 +1,6 @@
 """Reranker - ONNX cross-encoder for semantic ranking."""
 
 import os
-import shutil
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -134,8 +133,19 @@ def get_model_info() -> dict:
             repo_id=MODEL_REPO,
             filename=MODEL_FILE,
         )
+        tokenizer_path = try_to_load_from_cache(
+            repo_id=MODEL_REPO,
+            filename=TOKENIZER_FILE,
+        )
 
-        if model_path and os.path.exists(model_path):
+        # Check both model and tokenizer are cached (isinstance guards against
+        # _CACHED_NO_EXIST sentinel which is truthy but not a path)
+        if (
+            isinstance(model_path, str)
+            and isinstance(tokenizer_path, str)
+            and os.path.exists(model_path)
+            and os.path.exists(tokenizer_path)
+        ):
             info["installed"] = True
             info["model_path"] = model_path
             info["size_mb"] = round(os.path.getsize(model_path) / 1024 / 1024, 1)
@@ -147,6 +157,9 @@ def get_model_info() -> dict:
 
 def clean_model_cache() -> bool:
     """Remove cached model files.
+
+    Uses HuggingFace's cache management API to delete only the hygrep model,
+    leaving other cached models untouched.
 
     Returns:
         True if cache was cleaned, False if nothing to clean
@@ -169,11 +182,7 @@ def clean_model_cache() -> bool:
 
         return deleted
     except Exception:
-        # Fallback: if custom cache dir, delete it entirely
-        custom_dir = get_cache_dir()
-        if custom_dir and custom_dir.exists():
-            shutil.rmtree(custom_dir)
-            return True
+        # Don't fallback to rmtree - too dangerous for shared cache
         return False
 
 
