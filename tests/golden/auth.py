@@ -9,10 +9,8 @@ class AuthenticationError(Exception):
     """Raised when authentication fails."""
 
 
-
 class SessionExpiredError(AuthenticationError):
     """Raised when session has expired."""
-
 
 
 def hash_password(password: str, salt: bytes | None = None) -> tuple[str, bytes]:

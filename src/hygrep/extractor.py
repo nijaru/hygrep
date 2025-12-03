@@ -236,7 +236,10 @@ class ContextExtractor:
         return ext_map.get(ext)
 
     def _fallback_sliding_window(
-        self, file_path: str, content: str, query: str,
+        self,
+        file_path: str,
+        content: str,
+        query: str,
     ) -> list[dict[str, Any]]:
         """
         Finds matches of 'query' in 'content' and returns windows +/- 5 lines.
@@ -281,7 +284,10 @@ class ContextExtractor:
         ]
 
     def extract(
-        self, file_path: str, query: str, content: str | None = None,
+        self,
+        file_path: str,
+        query: str,
+        content: str | None = None,
     ) -> list[dict[str, Any]]:
         if content is None:
             try:

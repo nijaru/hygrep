@@ -22,7 +22,10 @@ GOLDEN_DIR = Path(__file__).parent / "golden"
 
 
 def run_search(
-    query: str, path: str | None = None, fast: bool = False, top_k: int = 10,
+    query: str,
+    path: str | None = None,
+    fast: bool = False,
+    top_k: int = 10,
 ) -> list[dict]:
     """Run hygrep search and return results."""
     if path is None:
@@ -44,7 +47,9 @@ def run_search(
 
 
 def result_contains(
-    results: list[dict], expected_file: str, expected_name: str | None = None,
+    results: list[dict],
+    expected_file: str,
+    expected_name: str | None = None,
 ) -> bool:
     """Check if results contain expected file/name."""
     for r in results:

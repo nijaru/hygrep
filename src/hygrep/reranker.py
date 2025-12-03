@@ -263,12 +263,18 @@ class Reranker:
         except Exception:
             # GPU provider failed, fall back to CPU silently
             self.session = ort.InferenceSession(
-                model_path, sess_options, providers=["CPUExecutionProvider"],
+                model_path,
+                sess_options,
+                providers=["CPUExecutionProvider"],
             )
         self.provider = self.session.get_providers()[0]
 
     def search(
-        self, query: str, file_contents: dict, top_k: int = 10, max_candidates: int = 100,
+        self,
+        query: str,
+        file_contents: dict,
+        top_k: int = 10,
+        max_candidates: int = 100,
     ) -> list:
         """
         Full pipeline: Extract -> Rerank.

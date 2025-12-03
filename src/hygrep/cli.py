@@ -285,10 +285,16 @@ def main():
     parser.add_argument("-v", "--version", action="version", version=f"hygrep {__version__}")
     parser.add_argument("--fast", action="store_true", help="Skip neural reranking (instant grep)")
     parser.add_argument(
-        "-t", "--type", dest="file_types", help="Filter by file type (e.g., py,js,ts)",
+        "-t",
+        "--type",
+        dest="file_types",
+        help="Filter by file type (e.g., py,js,ts)",
     )
     parser.add_argument(
-        "--max-candidates", type=int, default=100, help="Max candidates to rerank (default: 100)",
+        "--max-candidates",
+        type=int,
+        default=100,
+        help="Max candidates to rerank (default: 100)",
     )
     parser.add_argument(
         "--color",
@@ -326,10 +332,14 @@ def main():
         help="Output shell completion script and exit",
     )
     parser.add_argument(
-        "--hidden", action="store_true", help="Include hidden files and directories",
+        "--hidden",
+        action="store_true",
+        help="Include hidden files and directories",
     )
     parser.add_argument(
-        "--force", action="store_true", help="Force re-download model (for 'hygrep model install')",
+        "--force",
+        action="store_true",
+        help="Force re-download model (for 'hygrep model install')",
     )
 
     args = parser.parse_args()
@@ -557,7 +567,10 @@ def main():
 
         reranker = Reranker()
         results = reranker.search(
-            args.query, file_contents, top_k=args.n, max_candidates=args.max_candidates,
+            args.query,
+            file_contents,
+            top_k=args.n,
+            max_candidates=args.max_candidates,
         )
 
     stats["rerank_ms"] = int((time.perf_counter() - rerank_start) * 1000)
