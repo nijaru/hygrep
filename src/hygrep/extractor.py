@@ -66,6 +66,8 @@ QUERIES = {
         (function_item) @function
         (impl_item) @class
         (struct_item) @class
+        (trait_item) @class
+        (enum_item) @class
     """,
     "go": """
         (function_declaration) @function
@@ -259,10 +261,21 @@ class ContextExtractor:
             seen_ranges.add(rng)
 
             name = "anonymous"
+            name_types = ("identifier", "name", "field_identifier", "type_identifier")
+            # Search direct children first
             for child in node.children:
-                if child.type == "identifier" or child.type == "name":
+                if child.type in name_types:
                     name = child.text.decode("utf8")
                     break
+            # If not found, search one level deeper (e.g., Go type_spec)
+            if name == "anonymous":
+                for child in node.children:
+                    for grandchild in child.children:
+                        if grandchild.type in name_types:
+                            name = grandchild.text.decode("utf8")
+                            break
+                    if name != "anonymous":
+                        break
 
             blocks.append({
                 "type": tag,

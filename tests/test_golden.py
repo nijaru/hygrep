@@ -97,12 +97,8 @@ class TestFastMode:
     def test_go_handler_search(self):
         """Search for Go HTTP handlers."""
         results = run_search("healthHandler", fast=True)
-        # Note: Go methods show as "anonymous" due to extractor limitation
-        assert result_contains(results, "server.go"), \
-            f"Should find server.go: {get_result_names(results)}"
-        # Verify the content includes healthHandler
-        assert any("healthHandler" in r.get("content", "") for r in results), \
-            f"Should have healthHandler in content"
+        assert result_contains(results, "server.go", "healthHandler"), \
+            f"Should find healthHandler: {get_result_names(results)}"
 
     def test_rust_error_types(self):
         """Search for Rust error handling."""
@@ -113,12 +109,8 @@ class TestFastMode:
     def test_rust_result_extension(self):
         """Search for Rust trait implementations."""
         results = run_search("ResultExt", fast=True)
-        # Note: Rust traits may show as "anonymous" due to extractor limitation
-        assert result_contains(results, "errors.rs"), \
-            f"Should find errors.rs: {get_result_names(results)}"
-        # Verify the content includes ResultExt
-        assert any("ResultExt" in r.get("content", "") for r in results), \
-            f"Should have ResultExt in content"
+        assert result_contains(results, "errors.rs", "ResultExt"), \
+            f"Should find ResultExt: {get_result_names(results)}"
 
     def test_cross_language_auth(self):
         """Search should find auth in multiple languages."""
