@@ -2,18 +2,25 @@
 
 | Metric | Value | Updated |
 |--------|-------|---------|
-| Phase | 8 (Hardening) | 2025-12-02 |
-| Version | 0.0.1 | 2025-12-02 |
+| Phase | 9 (Released) | 2025-12-03 |
+| Version | 0.0.1 | 2025-12-03 |
+| PyPI | https://pypi.org/project/hygrep/ | 2025-12-03 |
 | Perf | ~20k files/sec (Mojo) | 2025-12-02 |
 | Inference | ~2s/100 candidates (CPU) | 2025-12-02 |
 | Mojo | v25.7 | 2025-12-01 |
-| Wheels | 6 (py3.11-3.13 × linux/macos) | 2025-12-02 |
+| Wheels | 6 (py3.11-3.13 × linux/macos) | 2025-12-03 |
 
 ## Active Work
 
-Ready for PyPI release. Wheels build and work (Python fallback for users without Mojo runtime).
+Published to PyPI. Focus now on improving test coverage.
 
 ## Completed (Recent)
+
+### v0.0.1 Release (2025-12-03)
+- Published to PyPI via trusted publishing
+- GitHub release created
+- Tested on macOS (arm64) and Fedora (x86_64)
+- Linting fixed (ruff, vulture, ty)
 
 ### Wheel Distribution Fix (2025-12-02)
 - Added Python fallback scanner for wheels (Mojo runtime not bundled)
@@ -27,27 +34,7 @@ Ready for PyPI release. Wheels build and work (Python fallback for users without
 - Tree-sitter deprecation fix (`Query()` constructor)
 - `hygrep info` command for installation verification
 - Mojo tree-sitter support added
-- Branding: "Hyper + Hybrid grep"
 - Added C, C++, Java, Ruby, C# language support (11 languages total)
-
-### Phase 7: CLI Polish (2025-12-02)
-- Color output with --color flag
-- Gitignore filtering with pathspec
-- Grep-compatible exit codes
-- Context lines with -C flag
-- Stats with --stats
-- Config file support
-- Shell completions
-- Exclude patterns
-- Min-score filter
-- Hidden files option
-
-### Phase 6: Performance
-- Thread optimization: 4-thread ONNX inference
-- `--fast` mode: Skip neural reranking
-- `-t/--type` filter: Filter by file type
-- `--max-candidates`: Cap inference work
-- Tree-sitter query caching (15% improvement)
 
 ## Blockers
 
@@ -61,7 +48,7 @@ None.
 
 ## Next Steps
 
-1. Distribution: PyPI wheels + CI/CD (hgrep-4n4)
+1. Improve test coverage (see beads)
 2. Consider daemon mode for warm model (future)
 
 See `bd list --status=open` for all open issues.
