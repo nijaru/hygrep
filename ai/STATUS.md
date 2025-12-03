@@ -3,7 +3,7 @@
 | Metric | Value | Updated |
 |--------|-------|---------|
 | Phase | 9 (Released) | 2025-12-03 |
-| Version | 0.0.3 (PyPI) | 2025-12-03 |
+| Version | 0.0.4 (PyPI) | 2025-12-03 |
 | PyPI | https://pypi.org/project/hygrep/ | 2025-12-03 |
 | Perf | ~20k files/sec (Mojo) | 2025-12-02 |
 | Inference | ~2s/100 candidates (CPU) | 2025-12-02 |
@@ -12,9 +12,13 @@
 
 ## Active Work
 
-None. v0.0.3 released.
+None. v0.0.4 released.
 
 ## Completed (Recent)
+
+### v0.0.4 Release (2025-12-03)
+- Fix name extraction for Go methods and Rust traits/structs/enums
+- Add golden dataset integration tests (21 tests)
 
 ### v0.0.3 Release (2025-12-03)
 - Suppress ONNX Runtime warnings on macOS (CoreML capability + Context leak)
@@ -70,7 +74,7 @@ See `ai/DECISIONS.md` section 8 for details.
 
 ## Next Steps
 
-1. Improve test coverage (see beads)
-2. Consider daemon mode for warm model (future)
+1. Consider daemon mode for warm model (future)
+2. GPU support when onnxruntime packages are ready
 
 See `bd list --status=open` for all open issues.
