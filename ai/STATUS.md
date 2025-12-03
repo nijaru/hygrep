@@ -4,15 +4,21 @@
 |--------|-------|---------|
 | Phase | 8 (Hardening) | 2025-12-02 |
 | Version | 0.0.2 | 2025-12-02 |
-| Perf | ~20k files/sec (Recall) | 2025-12-02 |
+| Perf | ~20k files/sec (Mojo) | 2025-12-02 |
 | Inference | ~2s/100 candidates (CPU) | 2025-12-02 |
 | Mojo | v25.7 | 2025-12-01 |
+| Wheels | 6 (py3.11-3.13 × linux/macos) | 2025-12-02 |
 
 ## Active Work
 
-Phase 8 hardening complete. Ready for distribution (hgrep-4n4).
+Ready for PyPI release. Wheels build and work (Python fallback for users without Mojo runtime).
 
 ## Completed (Recent)
+
+### Wheel Distribution Fix (2025-12-02)
+- Added Python fallback scanner for wheels (Mojo runtime not bundled)
+- Dropped Python 3.14 (onnxruntime not available yet)
+- CI builds 6 wheels: 3.11, 3.12, 3.13 × linux-64, macos-arm64
 
 ### Phase 8: Hardening (2025-12-02)
 - GPU auto-detection with silent fallback
@@ -51,6 +57,7 @@ None.
 
 - 128-byte regex memory leak (Mojo v25.7 limitation)
 - GPU providers not widely available in conda-forge
+- Mojo native scanner requires MAX/Mojo runtime (wheels use Python fallback)
 
 ## Next Steps
 
