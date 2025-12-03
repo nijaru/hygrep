@@ -133,6 +133,21 @@ parallelize[worker](num_items)
 | Smoke | `pixi run hygrep "test" ./src` | Returns results |
 | Wheel | `uv build --wheel` | Platform-tagged wheel |
 
+## Release to PyPI
+
+**DO NOT trigger release workflow unless user explicitly says "publish to PyPI".**
+
+Prerequisites (one-time):
+1. Configure PyPI trusted publishing at https://pypi.org/manage/account/publishing/
+2. Add pending publisher: project=`hygrep`, owner=`nijaru`, repo=`hygrep`, workflow=`release.yml`
+
+To release:
+```bash
+gh workflow run release.yml -f version=X.Y.Z
+```
+
+Or via GitHub UI: Actions → Release → Run workflow → Enter version
+
 ## Known Limitations
 
 | Issue | Impact | Status |
