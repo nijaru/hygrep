@@ -147,12 +147,6 @@ gh workflow run release.yml -f version=X.Y.Z
 
 Or via GitHub UI: Actions → Release → Run workflow → Enter version
 
-## Known Limitations
-
-| Issue | Impact | Status |
-|-------|--------|--------|
-| 128-byte regex leak | Negligible for CLI | Mojo v25.7 limitation |
-
 ## AI Context
 
 **Read order:** `ai/STATUS.md` → `ai/DECISIONS.md`
