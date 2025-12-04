@@ -210,6 +210,85 @@ def test_fast_mode():
     print("Fast mode: PASS")
 
 
+def test_files_only():
+    """Test -l/--files-only option."""
+    import io
+    from contextlib import redirect_stdout
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with open(os.path.join(tmpdir, "a.py"), "w") as f:
+            f.write("def hello(): pass\ndef world(): pass\n")
+        with open(os.path.join(tmpdir, "b.py"), "w") as f:
+            f.write("def hello(): pass\n")
+
+        sys.argv = ["hygrep", "hello", tmpdir, "-l", "--fast", "-q", "--color", "never"]
+        stdout = io.StringIO()
+        with redirect_stdout(stdout), contextlib.suppress(SystemExit):
+            cli.main()
+
+        lines = stdout.getvalue().strip().split("\n")
+        # Should have unique files only
+        assert len(lines) == len(set(lines)), "Files should be unique"
+        assert len(lines) >= 1, "Should have at least one file"
+        for line in lines:
+            assert line.endswith(".py"), f"Expected .py file, got {line}"
+
+    print("Files only: PASS")
+
+
+def test_compact_json():
+    """Test --compact option for JSON without content."""
+    import io
+    from contextlib import redirect_stdout
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_file = os.path.join(tmpdir, "test.py")
+        with open(test_file, "w") as f:
+            f.write("def hello(): pass\n")
+
+        sys.argv = ["hygrep", "hello", tmpdir, "--json", "--compact", "--fast", "-q"]
+        stdout = io.StringIO()
+        with redirect_stdout(stdout), contextlib.suppress(SystemExit):
+            cli.main()
+
+        results = json.loads(stdout.getvalue())
+        assert len(results) >= 1
+        # Compact should NOT have content
+        assert "content" not in results[0], "Compact JSON should not have content"
+        # But should have other fields
+        assert "file" in results[0]
+        assert "start_line" in results[0]
+        assert "end_line" in results[0]
+
+    print("Compact JSON: PASS")
+
+
+def test_end_line_in_json():
+    """Test that end_line is present in JSON output."""
+    import io
+    from contextlib import redirect_stdout
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_file = os.path.join(tmpdir, "test.py")
+        with open(test_file, "w") as f:
+            f.write("def hello():\n    pass\n    return True\n")
+
+        sys.argv = ["hygrep", "hello", tmpdir, "--json", "--fast", "-q"]
+        stdout = io.StringIO()
+        with redirect_stdout(stdout), contextlib.suppress(SystemExit):
+            cli.main()
+
+        results = json.loads(stdout.getvalue())
+        assert len(results) >= 1
+        assert "start_line" in results[0], "Missing start_line"
+        assert "end_line" in results[0], "Missing end_line"
+        assert results[0]["end_line"] >= results[0]["start_line"], (
+            "end_line should be >= start_line"
+        )
+
+    print("End line in JSON: PASS")
+
+
 if __name__ == "__main__":
     print("Running CLI tests...\n")
     test_exit_codes()
@@ -220,4 +299,7 @@ if __name__ == "__main__":
     test_info_command()
     test_model_command()
     test_fast_mode()
+    test_files_only()
+    test_compact_json()
+    test_end_line_in_json()
     print("\nAll CLI tests passed!")

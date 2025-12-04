@@ -415,7 +415,10 @@ def search(
         seen = set()
         for r in results:
             if r["file"] not in seen:
-                print(r["file"])
+                if use_color:
+                    console.print(f"[cyan]{r['file']}[/]")
+                else:
+                    print(r["file"])
                 seen.add(r["file"])
         raise typer.Exit(EXIT_MATCH if results else EXIT_NO_MATCH)
 
