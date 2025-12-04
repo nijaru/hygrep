@@ -82,7 +82,8 @@ def build_index(root: Path, quiet: bool = False) -> None:
     if not quiet:
         console.print()  # Newline after progress
         console.print(
-            f"[green]✓[/] Indexed {stats['blocks']} blocks from {stats['files']} files ({index_time:.1f}s)"
+            f"[green]✓[/] Indexed {stats['blocks']} blocks "
+            f"from {stats['files']} files ({index_time:.1f}s)"
         )
         if stats["skipped"]:
             console.print(f"[dim]  Skipped {stats['skipped']} unchanged files[/]")
@@ -164,12 +165,13 @@ def print_results(
         line = r.get("line") or r.get("start_line", 0)
 
         console.print(
-            f"[cyan]{file_path}[/]:[yellow]{line}[/] {type_str} [bold]{name_str}[/] [dim]{score_str}[/]"
+            f"[cyan]{file_path}[/]:[yellow]{line}[/] "
+            f"{type_str} [bold]{name_str}[/] [dim]{score_str}[/]"
         )
 
         # Content preview (first 3 non-empty lines)
         if show_content and r.get("content"):
-            content_lines = [l for l in r["content"].split("\n") if l.strip()][:3]
+            content_lines = [ln for ln in r["content"].split("\n") if ln.strip()][:3]
             for content_line in content_lines:
                 # Truncate long lines
                 if len(content_line) > 80:
@@ -261,6 +263,21 @@ def main(
         build_index(path, quiet=quiet)
         if not quiet:
             console.print()
+    else:
+        # Check for stale index and auto-update
+        from .scanner import scan
+        from .semantic import SemanticIndex
+
+        files = scan(str(path), ".", include_hidden=False)
+        index = SemanticIndex(path)
+        stale_count = index.needs_update(files)
+
+        if stale_count > 0:
+            if not quiet:
+                console.print(f"[dim]Updating index ({stale_count} files changed)...[/]")
+            stats = index.update(files)
+            if not quiet and stats.get("blocks", 0) > 0:
+                console.print(f"[dim]  Updated {stats['blocks']} blocks[/]")
 
     # Run semantic search
     if not quiet:

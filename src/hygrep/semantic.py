@@ -205,6 +205,67 @@ class SemanticIndex:
         db = self._ensure_db()
         return db.count()
 
+    def get_stale_files(self, files: dict[str, str]) -> tuple[list[str], list[str]]:
+        """Find files that need reindexing.
+
+        Returns:
+            Tuple of (changed_files, deleted_files)
+        """
+        manifest = self._load_manifest()
+        indexed_files = manifest.get("files", {})
+
+        changed = []
+        for file_path, content in files.items():
+            file_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
+            if indexed_files.get(file_path) != file_hash:
+                changed.append(file_path)
+
+        # Files in manifest but not in current scan = deleted
+        current_files = set(files.keys())
+        deleted = [f for f in indexed_files if f not in current_files]
+
+        return changed, deleted
+
+    def needs_update(self, files: dict[str, str]) -> int:
+        """Quick check: how many files need updating?"""
+        changed, deleted = self.get_stale_files(files)
+        return len(changed) + len(deleted)
+
+    def update(
+        self,
+        files: dict[str, str],
+        on_progress: callable = None,
+    ) -> dict:
+        """Incremental update - only reindex changed files.
+
+        Args:
+            files: Dict mapping file paths to content (all files).
+            on_progress: Callback for progress updates.
+
+        Returns:
+            Stats dict with counts.
+        """
+        changed, deleted = self.get_stale_files(files)
+
+        if not changed and not deleted:
+            return {"files": 0, "blocks": 0, "deleted": 0, "skipped": len(files)}
+
+        # Only pass changed files to index()
+        changed_files = {f: files[f] for f in changed if f in files}
+        stats = self.index(changed_files, on_progress=on_progress)
+
+        # Handle deleted files - remove from manifest
+        # Note: omendb doesn't have delete by metadata, so we keep vectors
+        # but remove from manifest (they won't match future searches well)
+        if deleted:
+            manifest = self._load_manifest()
+            for f in deleted:
+                manifest["files"].pop(f, None)
+            self._save_manifest(manifest)
+            stats["deleted"] = len(deleted)
+
+        return stats
+
     def clear(self) -> None:
         """Delete the index."""
         import shutil
