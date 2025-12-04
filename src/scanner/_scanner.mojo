@@ -18,19 +18,13 @@ from src.scanner.c_regex import Regex
 
 
 fn is_literal_pattern(pattern: String) -> Bool:
-    """Check if pattern contains no regex metacharacters.
-
-    If True, we can use fast SIMD string search instead of regex.
-    """
+    """Check if pattern contains no regex metacharacters."""
+    alias METACHARACTERS = "*+?.^$[](){}|\\"
     for i in range(len(pattern)):
         var c = pattern[i]
-        # Common regex metacharacters
-        if c == "*" or c == "+" or c == "?" or c == "." or c == "^":
-            return False
-        if c == "$" or c == "[" or c == "]" or c == "(" or c == ")":
-            return False
-        if c == "{" or c == "}" or c == "|" or c == "\\":
-            return False
+        for j in range(len(METACHARACTERS)):
+            if c == METACHARACTERS[j]:
+                return False
     return True
 
 
@@ -82,16 +76,15 @@ fn scan(
     pattern_obj: PythonObject,
     include_hidden_obj: PythonObject = False,
 ) raises -> PythonObject:
-    """
-    Scan directory tree for files matching regex pattern.
+    """Scan directory tree for files matching pattern.
 
     Args:
-        root_obj: Root directory path (str)
-        pattern_obj: Regex pattern to match (str)
-        include_hidden_obj: Whether to include hidden files (bool, default False)
+        root_obj: Root directory path.
+        pattern_obj: Pattern to match.
+        include_hidden_obj: Whether to include hidden files.
 
     Returns:
-        Python dict mapping file paths to their contents
+        Python dict mapping file paths to their contents.
     """
     var root = Path(String(root_obj))
     var pattern = String(pattern_obj)
@@ -316,11 +309,7 @@ fn scan_file_with_content(file: Path, re: Regex) -> String:
 
 
 fn scan_file_literal(file: Path, pattern_lower: String) -> String:
-    """Returns file content if literal pattern matches (case-insensitive).
-
-    Uses SIMD-optimized String.find() instead of regex for ~5-10x speedup
-    on literal patterns.
-    """
+    """Returns file content if literal pattern matches (case-insensitive)."""
     try:
         var stat = file.stat()
         if stat.st_size > MAX_FILE_SIZE:

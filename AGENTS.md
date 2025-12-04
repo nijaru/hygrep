@@ -27,7 +27,7 @@ Query → [Mojo Scanner] → matching files → [Tree-sitter] → code blocks �
         (parallel, libc)                  & classes from AST          (batched inference)
 ```
 
-**Performance note**: For literal patterns (no regex metacharacters), the scanner uses SIMD-optimized string search via Mojo's `String.find()`. For regex patterns, it falls back to POSIX regex (libc). The literal fast path is ~5-10x faster than regex for simple queries like `"handleError"` or `"def foo"`.
+**Performance note**: For literal patterns (no regex metacharacters), the scanner uses `String.find()` with SIMD `_memmem`. For regex patterns, it uses POSIX regex (libc). The literal path avoids regex compilation overhead.
 
 | Stage | Implementation |
 |-------|----------------|
