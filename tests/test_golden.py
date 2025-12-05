@@ -31,9 +31,11 @@ def run_search(
     if path is None:
         path = str(GOLDEN_DIR)
 
-    args = ["hygrep", query, path, "--json", "-q", "-n", str(top_k)]
+    # Options must come BEFORE positional args in Typer CLI
+    args = ["hygrep", "--json", "-q", "-n", str(top_k)]
     if fast:
         args.append("--fast")
+    args.extend([query, path])
 
     sys.argv = args
     stdout = io.StringIO()
@@ -74,7 +76,8 @@ class TestFastMode:
 
     def test_python_function_search(self):
         """Search for Python functions."""
-        results = run_search("password hashing", fast=True)
+        # Use literal function name since --fast uses grep
+        results = run_search("hash_password", fast=True)
         assert len(results) > 0, "Should find results"
         assert result_contains(results, "auth.py"), (
             f"Should find auth.py: {get_result_names(results)}"
@@ -222,7 +225,8 @@ class TestEdgeCases:
 
     def test_empty_query(self):
         """Empty query should show help or exit gracefully."""
-        sys.argv = ["hygrep", "", str(GOLDEN_DIR), "--json", "-q", "--fast"]
+        # Options must come BEFORE positional args in Typer CLI
+        sys.argv = ["hygrep", "--json", "-q", "--fast", "", str(GOLDEN_DIR)]
         try:
             cli.main()
         except SystemExit as e:
