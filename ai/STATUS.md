@@ -6,7 +6,7 @@
 | Version   | 0.0.6 (PyPI)                      | 2025-12-04 |
 | Branch    | experiment/semantic-search        | 2025-12-04 |
 | PyPI      | https://pypi.org/project/hygrep/  | 2025-12-04 |
-| CLI       | `hhg` (primary), `hygrep` (alias) | 2025-12-03 |
+| CLI       | `hhg` (primary), `hygrep` (alias) | 2025-12-04 |
 | Languages | 22                                | 2025-12-03 |
 | Perf      | ~20k files/sec (Mojo)             | 2025-12-02 |
 | Inference | ~2s/100 candidates (CPU)          | 2025-12-02 |
@@ -17,16 +17,16 @@
 
 Semantic-first code search with ModernBERT embeddings:
 
-| Component              | Status  | Notes                                 |
-| ---------------------- | ------- | ------------------------------------- |
-| embedder.py            | ✅ Done | ModernBERT-embed-base INT8 (256 dims) |
-| semantic.py            | ✅ Done | SemanticIndex with walk-up discovery  |
-| cli_v2.py              | ✅ Done | Rich progress bars, spinner           |
-| Walk-up index          | ✅ Done | Reuses parent index from subdirs      |
-| Relative paths         | ✅ Done | Manifest v3, portable indexes         |
-| Search scope filtering | ✅ Done | Filter results to search directory    |
-| Auto-index on query    | ✅ Done | Builds index on first search          |
-| Auto-update stale      | ✅ Done | Incremental updates (hash-based)      |
+| Component              | Status | Notes                                 |
+| ---------------------- | ------ | ------------------------------------- |
+| embedder.py            | Done   | ModernBERT-embed-base INT8 (256 dims) |
+| semantic.py            | Done   | SemanticIndex with walk-up discovery  |
+| cli.py                 | Done   | Rich progress bars, spinner           |
+| Walk-up index          | Done   | Reuses parent index from subdirs      |
+| Relative paths         | Done   | Manifest v3, portable indexes         |
+| Search scope filtering | Done   | Filter results to search directory    |
+| Auto-index on query    | Done   | Builds index on first search          |
+| Auto-update stale      | Done   | Incremental updates (hash-based)      |
 
 **Index UX:**
 
@@ -54,6 +54,12 @@ Semantic-first code search with ModernBERT embeddings:
 
 ## Completed (Recent)
 
+### CLI Consolidation (2025-12-04)
+
+- Merged cli_v2 into cli.py (single clean module)
+- Removed backwards compat code paths
+- Simplified entry point
+
 ### Index UX Improvements (2025-12-04)
 
 - Walk-up index discovery (git-style)
@@ -67,7 +73,7 @@ Semantic-first code search with ModernBERT embeddings:
 
 - Created embedder.py: ONNX text embeddings
 - Created semantic.py: SemanticIndex class wrapping omendb
-- Added CLI: `hhg index build/status/clear/search`
+- Added CLI: `hhg status/rebuild/clean`
 - Fixed extractor.extract() argument order bug
 - Added SIMD literal fast path for non-regex patterns (~12% faster)
 
@@ -85,7 +91,6 @@ None.
 1. Test v2 on larger codebases, gather feedback
 2. Add `hhg init-ci` command for CI workflow generation
 3. Merge experiment/semantic-search to main
-4. Update entry point to use cli_v2
 
 ## Branch Status
 

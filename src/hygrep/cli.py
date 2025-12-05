@@ -1,360 +1,232 @@
-"""hygrep CLI - Grep + neural reranking for code search."""
+"""hhg - Semantic code search.
+
+If you want grep, use rg. If you want semantic understanding, use hhg.
+"""
 
 import json
-import os
-import re
-import sys
 import time
 from pathlib import Path
-from typing import Annotated, Optional
 
 import typer
 from rich.console import Console
 from rich.panel import Panel
-from rich.syntax import Syntax
-from rich.table import Table
-
-try:
-    import tomllib
-except ImportError:
-    import tomli as tomllib
-
-import contextlib
-
-import pathspec
 
 from . import __version__
-from .reranker import (
-    MODEL_REPO,
-    clean_model_cache,
-    download_model,
-    get_execution_providers,
-    get_model_info,
-)
 
-# Consoles for rich output
+# Consoles
 console = Console()
 err_console = Console(stderr=True)
 
-# Config file location
-CONFIG_PATH = Path.home() / ".config" / "hygrep" / "config.toml"
-
-# File extension to Pygments lexer mapping for syntax highlighting
-EXT_TO_LEXER: dict[str, str] = {
-    ".py": "python",
-    ".pyi": "python",
-    ".js": "javascript",
-    ".jsx": "jsx",
-    ".ts": "typescript",
-    ".tsx": "tsx",
-    ".rs": "rust",
-    ".go": "go",
-    ".java": "java",
-    ".c": "c",
-    ".h": "c",
-    ".cpp": "cpp",
-    ".cc": "cpp",
-    ".cxx": "cpp",
-    ".hpp": "cpp",
-    ".hh": "cpp",
-    ".cs": "csharp",
-    ".rb": "ruby",
-    ".php": "php",
-    ".sh": "bash",
-    ".bash": "bash",
-    ".zsh": "zsh",
-    ".fish": "fish",
-    ".md": "markdown",
-    ".json": "json",
-    ".yaml": "yaml",
-    ".yml": "yaml",
-    ".toml": "toml",
-    ".html": "html",
-    ".css": "css",
-    ".scss": "scss",
-    ".sql": "sql",
-    ".lua": "lua",
-    ".vim": "vim",
-    ".swift": "swift",
-    ".kt": "kotlin",
-    ".scala": "scala",
-    ".r": "r",
-    ".R": "r",
-    ".mojo": "python",  # Closest approximation
-    ".🔥": "python",
-}
-
-
-def load_config() -> dict:
-    """Load config from ~/.config/hygrep/config.toml if it exists."""
-    if not CONFIG_PATH.exists():
-        return {}
-    try:
-        with open(CONFIG_PATH, "rb") as f:
-            return tomllib.load(f)
-    except Exception as e:
-        err_console.print(f"[yellow]Warning:[/] Failed to load config: {e}")
-        return {}
-
-
-# Exit codes (grep convention)
+# Exit codes
 EXIT_MATCH = 0
 EXIT_NO_MATCH = 1
 EXIT_ERROR = 2
 
-# Examples panel for help
-EXAMPLES = """
-[bold]Examples:[/]
-  [cyan]hhg[/] "auth" ./src              Search with neural reranking
-  [cyan]hhg[/] "error" ./src --fast      Fast grep (no model, instant)
-  [cyan]hhg[/] "TODO" . -t py,rs         Filter by file type
-  [cyan]hhg[/] "TODO" . -l               List matching files only
-  [cyan]hhg[/] "api" . --json --compact  JSON metadata (no content)
-  [cyan]hhg model install[/]             Download the reranking model
-"""
+# Index directory
+INDEX_DIR = ".hhg"
 
-# Create the Typer app
 app = typer.Typer(
     name="hhg",
-    help="[bold]Grep + rerank:[/] regex search → extract code → rank by relevance\n\n" + EXAMPLES,
-    no_args_is_help=False,  # We handle empty args in callback
+    help="Semantic code search",
+    no_args_is_help=False,
     invoke_without_command=True,
-    rich_markup_mode="rich",
     add_completion=False,
-    context_settings={
-        "help_option_names": ["-h", "--help"],
-        "allow_interspersed_args": True,
-    },
 )
 
-# Model subcommand group
-model_app = typer.Typer(
-    help="Manage the reranking model",
-    no_args_is_help=True,
-    rich_markup_mode="rich",
-)
-app.add_typer(model_app, name="model")
+
+def get_index_path(root: Path) -> Path:
+    """Get the index directory path."""
+    return root.resolve() / INDEX_DIR
 
 
-def version_callback(value: bool):
-    if value:
-        console.print(f"hygrep {__version__}")
-        raise typer.Exit()
+def find_index(search_path: Path) -> tuple[Path, Path | None]:
+    """Find existing index by walking up directory tree.
+
+    Returns:
+        Tuple of (index_root, existing_index_dir or None).
+    """
+    from .semantic import find_index_root
+
+    return find_index_root(search_path)
 
 
-def completions_callback(shell: Optional[str]):
-    if shell:
-        if shell == "bash":
-            print(BASH_COMPLETION.strip())
-        elif shell == "zsh":
-            print(ZSH_COMPLETION.strip())
-        elif shell == "fish":
-            print(FISH_COMPLETION.strip())
-        raise typer.Exit()
+def index_exists(root: Path) -> bool:
+    """Check if index exists for this directory."""
+    index_path = get_index_path(root)
+    return (index_path / "manifest.json").exists()
 
 
-# ============================================================================
-# Main Search (default action via callback)
-# ============================================================================
+def build_index(root: Path, quiet: bool = False) -> None:
+    """Build semantic index for directory."""
+    from rich.progress import (
+        BarColumn,
+        Progress,
+        SpinnerColumn,
+        TaskProgressColumn,
+        TextColumn,
+    )
 
+    from .scanner import scan
+    from .semantic import SemanticIndex
 
-@app.callback()
-def search(
-    ctx: typer.Context,
-    query: Annotated[
-        Optional[str], typer.Argument(help="Search query (natural language or regex)")
-    ] = None,
-    path: Annotated[Path, typer.Argument(help="Directory to search")] = Path("."),
-    # Output options
-    n: Annotated[int, typer.Option("-n", help="Number of results")] = 10,
-    json_output: Annotated[bool, typer.Option("--json", help="Output JSON for scripts")] = False,
-    files_only: Annotated[bool, typer.Option("-l", "--files-only", help="Only list files")] = False,
-    compact: Annotated[bool, typer.Option("--compact", help="JSON without content")] = False,
-    quiet: Annotated[bool, typer.Option("-q", "--quiet", help="Suppress progress")] = False,
-    context: Annotated[int, typer.Option("-C", "--context", help="Lines of context")] = 0,
-    color: Annotated[str, typer.Option(help="Color: auto/always/never")] = "auto",
-    stats: Annotated[bool, typer.Option("--stats", help="Show timing stats")] = False,
-    # Filtering options
-    file_types: Annotated[
-        Optional[str], typer.Option("-t", "--type", help="Filter types (py,js,ts...)")
-    ] = None,
-    exclude: Annotated[Optional[list[str]], typer.Option("--exclude", help="Exclude glob")] = None,
-    min_score: Annotated[float, typer.Option("--min-score", help="Min score threshold")] = 0.0,
-    no_ignore: Annotated[bool, typer.Option("--no-ignore", help="Ignore .gitignore")] = False,
-    hidden: Annotated[bool, typer.Option("--hidden", help="Include hidden files")] = False,
-    # Performance options
-    fast: Annotated[bool, typer.Option("--fast", help="Skip reranking (instant)")] = False,
-    max_candidates: Annotated[int, typer.Option("--max-candidates", help="Max to rerank")] = 100,
-    # Meta options
-    version: Annotated[
-        Optional[bool],
-        typer.Option("-v", "--version", callback=version_callback, is_eager=True, help="Version"),
-    ] = None,
-    completions: Annotated[
-        Optional[str],
-        typer.Option(
-            "--completions", callback=completions_callback, is_eager=True, help="Shell completions"
-        ),
-    ] = None,
-    # Hidden option for model install --force (parsed here, used in model subcommand handling)
-    force: Annotated[bool, typer.Option("--force", "-f", hidden=True)] = False,
-):
-    """Search code with natural language or regex."""
-    # Skip if a subcommand was invoked
-    if ctx.invoked_subcommand is not None:
+    root = root.resolve()
+
+    if quiet:
+        # Quiet mode: no progress display
+        files = scan(str(root), ".", include_hidden=False)
+        if not files:
+            return
+        index = SemanticIndex(root)
+        index.index(files)
         return
 
-    # Check if query is actually a subcommand name (Typer parses positional args first)
-    if query == "info":
-        # Invoke info command directly
-        info()
-        raise typer.Exit()
-    if query == "model":
-        # Handle model subcommands (path contains the subcommand due to arg parsing)
-        subcmd = str(path)
-        if subcmd == "install":
-            model_install(force=force)
-        elif subcmd == "clean":
-            model_clean()
-        elif subcmd == "status":
-            model_status()
-        else:
-            err_console.print("[yellow]Usage:[/] hhg model [install|clean|status]")
-            err_console.print("Run [cyan]hhg model --help[/] for more info")
-        raise typer.Exit()
-    if query == "index":
-        # Handle index subcommands - parse from sys.argv since Typer mangles args
-        args = sys.argv[1:]  # Skip program name
-        idx = args.index("index") if "index" in args else 0
-        remaining = args[idx + 1 :]  # Everything after "index"
+    # Interactive mode: show progress
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        console=err_console,
+        transient=True,
+    ) as progress:
+        # Phase 1: Scan
+        scan_task = progress.add_task("Scanning files...", total=None)
+        t0 = time.perf_counter()
+        files = scan(str(root), ".", include_hidden=False)
+        scan_time = time.perf_counter() - t0
+        progress.remove_task(scan_task)
 
-        subcmd = remaining[0] if remaining else ""
-        target_path = Path(remaining[1]) if len(remaining) > 1 else Path(".")
+        if not files:
+            err_console.print("[yellow]No files found to index[/]")
+            return
 
-        if subcmd == "build":
-            index_build(target_path, quiet=quiet)
-        elif subcmd == "status":
-            index_status(target_path)
-        elif subcmd == "clear":
-            index_clear(target_path)
-        elif subcmd == "search":
-            # For search: hhg index search <query> [path]
-            if len(remaining) >= 2:
-                search_query = remaining[1]
-                search_path = Path(remaining[2]) if len(remaining) > 2 else Path(".")
-                index_search(
-                    search_query, search_path, n=n, json_output=json_output, context=context
-                )
-            else:
-                err_console.print("[yellow]Usage:[/] hhg index search <query> [path]")
-        else:
-            err_console.print("[yellow]Usage:[/] hhg index [build|status|clear|search]")
-            err_console.print("Run [cyan]hhg index --help[/] for more info")
-        raise typer.Exit()
+        err_console.print(f"[dim]Found {len(files)} files ({scan_time:.1f}s)[/]")
 
-    # No query = show help panel
-    if not query:
-        console.print(
-            Panel(EXAMPLES.strip(), title="[bold]hhg[/] - Grep + Rerank", border_style="dim")
-        )
-        raise typer.Exit()
+        # Phase 2: Extract and embed
+        index = SemanticIndex(root)
+        embed_task = progress.add_task("Embedding code blocks...", total=100)
 
-    # Load config and apply defaults
-    config = load_config()
-    if config:
-        if n == 10 and "n" in config:
-            n = config["n"]
-        if max_candidates == 100 and "max_candidates" in config:
-            max_candidates = config["max_candidates"]
-        if color == "auto" and "color" in config:
-            color = config["color"]
-        if min_score == 0.0 and "min_score" in config:
-            min_score = config["min_score"]
-        if not fast and config.get("fast", False):
-            fast = True
-        if not quiet and config.get("quiet", False):
-            quiet = True
-        if not hidden and config.get("hidden", False):
-            hidden = True
-        if not no_ignore and config.get("no_ignore", False):
-            no_ignore = True
-        if not exclude and "exclude" in config:
-            exc = config["exclude"]
-            exclude = exc if isinstance(exc, list) else [exc]
+        def on_progress(current: int, total: int, msg: str) -> None:
+            if total > 0:
+                progress.update(embed_task, completed=current, total=total)
 
-    # Determine color usage
-    use_color = (color == "always") or (color == "auto" and sys.stdout.isatty() and not json_output)
-    # Respect NO_COLOR standard
-    if os.environ.get("NO_COLOR"):
-        use_color = False
+        t0 = time.perf_counter()
+        stats = index.index(files, on_progress=on_progress)
+        index_time = time.perf_counter() - t0
+        progress.remove_task(embed_task)
 
-    # Validate path
-    if not path.exists():
-        if json_output:
-            print(json.dumps({"error": f"Path does not exist: {path}"}))
-        else:
-            err_console.print(f"[red]Error:[/] Path does not exist: {path}")
-        raise typer.Exit(EXIT_ERROR)
+    # Summary
+    err_console.print(
+        f"[green]✓[/] Indexed {stats['blocks']} blocks "
+        f"from {stats['files']} files ({index_time:.1f}s)"
+    )
+    if stats["skipped"]:
+        err_console.print(f"[dim]  Skipped {stats['skipped']} unchanged files[/]")
 
-    if not path.is_dir():
-        if json_output:
-            print(json.dumps({"error": f"Path is not a directory: {path}"}))
-        else:
-            err_console.print(f"[red]Error:[/] Path is not a directory: {path}")
-        raise typer.Exit(EXIT_ERROR)
 
-    # Stats tracking
-    stats_data = {"scan_ms": 0, "filter_ms": 0, "rerank_ms": 0, "total_ms": 0}
-    total_start = time.perf_counter()
+def semantic_search(
+    query: str,
+    search_path: Path,
+    index_root: Path,
+    n: int = 10,
+    threshold: float = 0.0,
+) -> list[dict]:
+    """Run semantic search.
 
-    # Query expansion: "login auth" -> "login|auth"
-    scanner_query = query
-    if " " in query and not _is_regex_pattern(query):
-        words = query.split()
-        escaped_words = [re.escape(w) for w in words]
-        scanner_query = "|".join(escaped_words)
+    Args:
+        query: Search query.
+        search_path: Directory to search in (may be subdir of index_root).
+        index_root: Root directory where index lives.
+        n: Number of results.
+        threshold: Minimum score filter.
+    """
+    from .semantic import SemanticIndex
 
-    # 1. Recall phase - Try Mojo scanner, fall back to Python
-    try:
-        from ._scanner import scan
-    except ImportError:
-        from .scanner import scan
+    # Pass search_scope if searching a subdirectory
+    index = SemanticIndex(index_root, search_scope=search_path)
+    results = index.search(query, k=n)
 
-    # Scan with spinner
-    if not quiet and not json_output:
-        with err_console.status(f"[bold blue]Scanning[/] {path}...", spinner="dots"):
-            scan_start = time.perf_counter()
-            file_contents = scan(str(path), scanner_query, hidden)
-            stats_data["scan_ms"] = int((time.perf_counter() - scan_start) * 1000)
-    else:
-        scan_start = time.perf_counter()
-        file_contents = scan(str(path), scanner_query, hidden)
-        stats_data["scan_ms"] = int((time.perf_counter() - scan_start) * 1000)
+    # Filter by threshold if specified (any non-zero value)
+    if threshold != 0.0:
+        results = [r for r in results if r.get("score", 0) >= threshold]
 
-    filter_start = time.perf_counter()
+    return results
 
-    # Filter by gitignore
-    if not no_ignore:
-        gitignore_spec = _load_gitignore(path)
-        if gitignore_spec:
-            file_contents = {
-                k: v
-                for k, v in file_contents.items()
-                if not gitignore_spec.match_file(k.lstrip("./"))
-            }
 
-    # Filter by exclude patterns
-    if exclude:
-        exclude_spec = pathspec.PathSpec.from_lines("gitwildmatch", exclude)
-        file_contents = {
-            k: v for k, v in file_contents.items() if not exclude_spec.match_file(k.lstrip("./"))
-        }
+def grep_search(pattern: str, root: Path, regex: bool = False) -> list[dict]:
+    """Fast grep search (escape hatch)."""
+    from .extractor import ContextExtractor
+    from .scanner import scan
 
-    # Filter by file type
+    # Scan for matches
+    files = scan(str(root), pattern, include_hidden=False)
+
+    # Extract context from matches
+    extractor = ContextExtractor()
+    results = []
+
+    for file_path, content in files.items():
+        blocks = extractor.extract(file_path, pattern, content)
+        for block in blocks:
+            results.append(
+                {
+                    "file": file_path,
+                    "type": block["type"],
+                    "name": block["name"],
+                    "line": block["start_line"],
+                    "end_line": block["end_line"],
+                    "content": block["content"],
+                    "score": 1.0,  # No ranking for grep
+                }
+            )
+
+    return results
+
+
+def fast_search(
+    query: str,
+    root: Path,
+    n: int = 10,
+    max_candidates: int = 100,
+) -> list[dict]:
+    """Grep + neural rerank (no index required)."""
+    from .reranker import Reranker
+    from .scanner import scan
+
+    # Scan for matches
+    files = scan(str(root), query, include_hidden=False)
+
+    if not files:
+        return []
+
+    # Rerank with neural model
+    reranker = Reranker()
+    results = reranker.search(query, files, top_k=n, max_candidates=max_candidates)
+
+    # Normalize output format (start_line -> line)
+    for r in results:
+        if "start_line" in r:
+            r["line"] = r.pop("start_line")
+
+    return results
+
+
+def filter_results(
+    results: list[dict],
+    file_types: str | None = None,
+    exclude: list[str] | None = None,
+) -> list[dict]:
+    """Filter results by file type and exclude patterns."""
+    import pathspec
+
+    if not file_types and not exclude:
+        return results
+
+    # File type filtering
     if file_types:
         type_map = {
-            "py": [".py"],
-            "js": [".js", ".jsx"],
+            "py": [".py", ".pyi"],
+            "js": [".js", ".jsx", ".mjs"],
             "ts": [".ts", ".tsx"],
             "rust": [".rs"],
             "rs": [".rs"],
@@ -366,675 +238,355 @@ def search(
             "cs": [".cs"],
             "rb": [".rb"],
             "php": [".php"],
-            "sh": [".sh", ".bash"],
+            "sh": [".sh", ".bash", ".zsh"],
             "md": [".md", ".markdown"],
             "json": [".json"],
             "yaml": [".yaml", ".yml"],
             "toml": [".toml"],
         }
         allowed_exts = set()
-        for file_type in file_types.split(","):
-            ft = file_type.strip().lower()
+        for ft in file_types.split(","):
+            ft = ft.strip().lower()
             if ft in type_map:
                 allowed_exts.update(type_map[ft])
             else:
                 allowed_exts.add(f".{ft}")
-        file_contents = {
-            k: v for k, v in file_contents.items() if any(k.endswith(ext) for ext in allowed_exts)
-        }
+        results = [r for r in results if any(r["file"].endswith(ext) for ext in allowed_exts)]
 
-    stats_data["filter_ms"] = int((time.perf_counter() - filter_start) * 1000)
+    # Exclude pattern filtering
+    if exclude:
+        exclude_spec = pathspec.PathSpec.from_lines("gitwildmatch", exclude)
+        results = [r for r in results if not exclude_spec.match_file(r["file"])]
 
-    if not quiet and not json_output:
-        err_console.print(f"[dim]Found {len(file_contents)} candidates[/]")
+    return results
 
-    if len(file_contents) == 0:
-        if json_output:
-            print("[]")
-        raise typer.Exit(EXIT_NO_MATCH)
 
-    # 2. Rerank phase (or fast mode)
-    rerank_start = time.perf_counter()
-    reranker = None
-
-    if fast:
-        from .extractor import ContextExtractor
-
-        extractor = ContextExtractor()
-        results = []
-        for filepath, content in list(file_contents.items())[:n]:
-            blocks = extractor.extract(filepath, query, content=content)
-            results.extend(
-                {
-                    "file": filepath,
-                    "type": block["type"],
-                    "name": block["name"],
-                    "start_line": block["start_line"],
-                    "end_line": block["end_line"],
-                    "content": block["content"],
-                    "score": 0.0,
-                }
-                for block in blocks
-            )
-        results = results[:n]
-    else:
-        from .reranker import Reranker
-
-        # Rerank with spinner
-        if not quiet and not json_output:
-            with err_console.status("[bold blue]Reranking...", spinner="dots"):
-                reranker = Reranker()
-                results = reranker.search(
-                    query, file_contents, top_k=n, max_candidates=max_candidates
-                )
-        else:
-            reranker = Reranker()
-            results = reranker.search(query, file_contents, top_k=n, max_candidates=max_candidates)
-
-    stats_data["rerank_ms"] = int((time.perf_counter() - rerank_start) * 1000)
-    stats_data["total_ms"] = int((time.perf_counter() - total_start) * 1000)
-
-    # Filter by min-score
-    if min_score > 0 and not fast:
-        results = [r for r in results if r["score"] >= min_score]
-
-    # Output results
-    if files_only:
-        # Unique file paths only
-        seen = set()
+def print_results(
+    results: list[dict],
+    json_output: bool = False,
+    files_only: bool = False,
+    compact: bool = False,
+    show_content: bool = True,
+    root: Path = None,
+) -> None:
+    """Print search results."""
+    # Convert to relative paths
+    if root:
         for r in results:
-            if r["file"] not in seen:
-                if use_color:
+            try:
+                r["file"] = str(Path(r["file"]).relative_to(root))
+            except ValueError:
+                pass
+
+    # Files-only mode
+    if files_only:
+        seen = set()
+        if json_output:
+            files = []
+            for r in results:
+                if r["file"] not in seen:
+                    files.append(r["file"])
+                    seen.add(r["file"])
+            print(json.dumps(files))
+        else:
+            for r in results:
+                if r["file"] not in seen:
                     console.print(f"[cyan]{r['file']}[/]")
-                else:
-                    print(r["file"])
-                seen.add(r["file"])
-        raise typer.Exit(EXIT_MATCH if results else EXIT_NO_MATCH)
+                    seen.add(r["file"])
+        return
 
     if json_output:
         if compact:
-            # Strip content for lighter output
-            results = [{k: v for k, v in r.items() if k != "content"} for r in results]
-        print(json.dumps(results))
-        raise typer.Exit(EXIT_MATCH if results else EXIT_NO_MATCH)
+            output = [{k: v for k, v in r.items() if k != "content"} for r in results]
+        else:
+            output = results
+        print(json.dumps(output, indent=2))
+        return
 
-    if not results:
-        err_console.print("[dim]No relevant results.[/]")
-        raise typer.Exit(EXIT_NO_MATCH)
+    for r in results:
+        file_path = r["file"]
+        type_str = f"[dim]{r.get('type', '')}[/]"
+        name_str = r.get("name", "")
+        line = r.get("line", 0)
 
-    # Print results
-    for item in results:
-        _print_result(item, fast, use_color, context)
+        console.print(f"[cyan]{file_path}[/]:[yellow]{line}[/] {type_str} [bold]{name_str}[/]")
 
-    # Show stats
-    if stats:
-        _print_stats(stats_data, reranker, use_color)
-
-    raise typer.Exit(EXIT_MATCH)
-
-
-# ============================================================================
-# Info Command
-# ============================================================================
-
-
-@app.command()
-def info():
-    """Show installation status and system info."""
-    console.print(f"\n[bold]hygrep[/] {__version__}\n")
-
-    table = Table(show_header=False, box=None, padding=(0, 2))
-    table.add_column("Status", style="bold")
-    table.add_column("Component")
-    table.add_column("Details", style="dim")
-
-    # Model status
-    model_info = get_model_info()
-    if model_info["installed"]:
-        table.add_row("[green]✓[/]", "Model", f"Installed ({model_info['size_mb']:.0f}MB)")
-    else:
-        table.add_row("[yellow]○[/]", "Model", "Not installed → [cyan]hhg model install[/]")
-
-    # Device/provider
-    providers = get_execution_providers()
-    provider = providers[0].replace("ExecutionProvider", "")
-    table.add_row("[green]✓[/]", "Device", provider)
-
-    # Scanner
-    try:
-        from ._scanner import scan  # noqa: F401
-
-        table.add_row("[green]✓[/]", "Scanner", "Mojo native")
-    except ImportError:
-        table.add_row("[green]✓[/]", "Scanner", "Python fallback")
-
-    # Languages
-    try:
-        from .extractor import LANGUAGE_CAPSULES
-
-        count = len(set(ext.lstrip(".") for ext in LANGUAGE_CAPSULES if not ext.startswith(".🔥")))
-        table.add_row("[green]✓[/]", "Languages", f"{count} supported")
-    except ImportError:
-        table.add_row("[red]✗[/]", "Languages", "Error loading")
-
-    console.print(table)
-    console.print()
-
-    # Additional info
-    if CONFIG_PATH.exists():
-        console.print(f"[dim]Config:[/]  {CONFIG_PATH}")
-    console.print(f"[dim]Repo:[/]    {MODEL_REPO}")
-    if model_info["cache_dir"]:
-        console.print(f"[dim]Cache:[/]   {model_info['cache_dir']}")
-    else:
-        console.print("[dim]Cache:[/]   ~/.cache/huggingface")
-    console.print()
+        # Content preview (first 3 non-empty lines)
+        if show_content and r.get("content"):
+            content_lines = [ln for ln in r["content"].split("\n") if ln.strip()][:3]
+            for content_line in content_lines:
+                # Truncate long lines
+                if len(content_line) > 80:
+                    content_line = content_line[:77] + "..."
+                console.print(f"  [dim]{content_line}[/]")
+            console.print()
 
 
-# ============================================================================
-# Model Commands
-# ============================================================================
-
-
-@model_app.command("install")
-def model_install(
-    force: Annotated[bool, typer.Option("--force", "-f", help="Force re-download")] = False,
+@app.callback(invoke_without_command=True)
+def search(
+    ctx: typer.Context,
+    query: str = typer.Argument(None, help="Search query"),
+    path: Path = typer.Argument(Path("."), help="Directory to search"),
+    # Output
+    n: int = typer.Option(10, "-n", help="Number of results"),
+    threshold: float = typer.Option(0.0, "--threshold", "--min-score", help="Minimum score (0-1)"),
+    json_output: bool = typer.Option(False, "--json", "-j", help="JSON output"),
+    files_only: bool = typer.Option(False, "-l", "--files-only", help="List files only"),
+    compact: bool = typer.Option(False, "-c", "--compact", help="No content in output"),
+    quiet: bool = typer.Option(False, "-q", "--quiet", help="Suppress progress"),
+    # Filtering
+    file_types: str = typer.Option(None, "-t", "--type", help="Filter types (py,js,ts)"),
+    exclude: list[str] = typer.Option(None, "--exclude", help="Exclude glob pattern"),
+    # Modes
+    fast: bool = typer.Option(False, "-f", "--fast", help="Grep + rerank (no index)"),
+    exact: bool = typer.Option(False, "-e", "--exact", help="Exact grep (no rerank)"),
+    regex: bool = typer.Option(False, "-r", "--regex", help="Regex grep (no rerank)"),
+    # Index control
+    no_index: bool = typer.Option(False, "--no-index", help="Skip auto-index (fail if missing)"),
+    # Meta
+    version: bool = typer.Option(False, "-v", "--version", help="Show version"),
 ):
-    """Download the reranking model from HuggingFace."""
-    try:
-        with err_console.status("[bold blue]Downloading model...", spinner="dots"):
-            download_model(force=force, quiet=True)
-        console.print("[green]✓[/] Model installed successfully")
-    except Exception as e:
-        err_console.print(f"[red]Error:[/] {e}")
-        raise typer.Exit(EXIT_ERROR)
+    """Semantic code search.
 
+    Examples:
+        hhg "authentication flow" ./src    # Semantic search (best quality)
+        hhg -f "auth" ./src                # Grep + rerank (no index)
+        hhg -e "TODO" ./src                # Exact grep (fastest)
+        hhg -r "TODO.*fix" ./src           # Regex grep
+    """
+    if ctx.invoked_subcommand is not None:
+        return
 
-@model_app.command("clean")
-def model_clean():
-    """Remove cached model files."""
-    if clean_model_cache():
-        console.print("[green]✓[/] Model cache cleaned")
-    else:
-        console.print("[yellow]No cached model to clean[/]")
-        raise typer.Exit(EXIT_NO_MATCH)
+    # Handle case where user typed a subcommand name as query
+    # (Typer can't distinguish due to optional positional args)
+    if query == "status":
+        err_console.print(f"[dim]Running: hhg status {path}[/]")
+        status(path=path)
+        raise typer.Exit()
+    elif query == "rebuild":
+        err_console.print(f"[dim]Running: hhg rebuild {path}[/]")
+        rebuild(path=path, quiet=quiet)
+        raise typer.Exit()
+    elif query == "clean":
+        err_console.print(f"[dim]Running: hhg clean {path}[/]")
+        clean(path=path)
+        raise typer.Exit()
 
+    if version:
+        console.print(f"hhg {__version__}")
+        raise typer.Exit()
 
-@model_app.command("status")
-def model_status():
-    """Show model installation status."""
-    info = get_model_info()
+    if not query:
+        console.print(
+            Panel(
+                "[bold]hhg[/] - Semantic code search\n\n"
+                "[dim]Search modes:[/]\n"
+                "  hhg <query> [path]       Semantic search (auto-indexes)\n"
+                "  hhg -f <query> [path]    Grep + neural rerank (no index)\n"
+                "  hhg -e <pattern> [path]  Exact grep (fastest)\n"
+                "  hhg -r <pattern> [path]  Regex grep\n\n"
+                "[dim]Index commands:[/]\n"
+                "  hhg status [path]        Show index status\n"
+                "  hhg rebuild [path]       Rebuild index\n"
+                "  hhg clean [path]         Delete index",
+                border_style="dim",
+            )
+        )
+        raise typer.Exit()
 
-    table = Table(show_header=False, box=None)
-    table.add_column("Key", style="dim")
-    table.add_column("Value")
-
-    table.add_row("Repository", info["repo"])
-    table.add_row(
-        "Status", "[green]Installed[/]" if info["installed"] else "[yellow]Not installed[/]"
-    )
-
-    if info["installed"]:
-        table.add_row("Size", f"{info['size_mb']:.0f}MB")
-        table.add_row("Path", str(info["model_path"]))
-
-    if info["cache_dir"]:
-        table.add_row("Cache", str(info["cache_dir"]))
-    else:
-        table.add_row("Cache", "~/.cache/huggingface")
-
-    console.print(table)
-
-
-# ============================================================================
-# Index Commands (Semantic Search)
-# ============================================================================
-
-index_app = typer.Typer(
-    help="Manage semantic search index",
-    no_args_is_help=True,
-    rich_markup_mode="rich",
-)
-app.add_typer(index_app, name="index")
-
-
-@index_app.command("build")
-def index_build(
-    path: Annotated[Path, typer.Argument(help="Directory to index")] = Path("."),
-    quiet: Annotated[bool, typer.Option("-q", "--quiet", help="Suppress progress")] = False,
-):
-    """Build semantic search index for a directory."""
-    try:
-        from .semantic import SemanticIndex
-    except ImportError as e:
-        err_console.print(f"[red]Error:[/] {e}")
-        err_console.print("[dim]Install omendb: pip install omendb[/]")
-        raise typer.Exit(EXIT_ERROR)
-
+    # Validate path
     path = path.resolve()
     if not path.exists():
         err_console.print(f"[red]Error:[/] Path does not exist: {path}")
         raise typer.Exit(EXIT_ERROR)
 
-    # Scan for files
-    from .scanner import scan
-
-    if not quiet:
-        with err_console.status("[bold blue]Scanning files...", spinner="dots"):
-            files = scan(str(path), ".", include_hidden=False)
-    else:
-        files = scan(str(path), ".", include_hidden=False)
-
-    if not files:
-        err_console.print("[yellow]No files found to index[/]")
-        raise typer.Exit(EXIT_NO_MATCH)
-
-    # Build index
-    index = SemanticIndex(path)
-
-    def on_progress(current: int, total: int, msg: str):
+    # Escape hatches: grep mode
+    if exact or regex:
         if not quiet:
-            err_console.print(f"[dim]{msg} ({current}/{total})[/]", end="\r")
+            mode = "regex" if regex else "exact"
+            err_console.print(f"[dim]Searching ({mode})...[/]")
 
-    if not quiet:
-        console.print(f"[bold]Indexing {len(files)} files...[/]")
+        t0 = time.perf_counter()
+        results = grep_search(query, path, regex=regex)
+        search_time = time.perf_counter() - t0
 
-    stats = index.index(files, on_progress=on_progress if not quiet else None)
+        if not results:
+            if not json_output:
+                err_console.print("[dim]No matches found[/]")
+            raise typer.Exit(EXIT_NO_MATCH)
 
-    if not quiet:
-        console.print()  # Clear progress line
-        console.print(
-            f"[green]✓[/] Indexed {stats['blocks']} code blocks from {stats['files']} files"
-        )
-        if stats["skipped"]:
-            console.print(f"[dim]  Skipped {stats['skipped']} unchanged files[/]")
-        if stats["errors"]:
-            console.print(f"[yellow]  {stats['errors']} files had errors[/]")
+        results = results[:n]
+        results = filter_results(results, file_types, exclude)
+        print_results(results, json_output, files_only, compact, root=path)
 
+        if not quiet and not json_output and not files_only:
+            err_console.print(f"[dim]{len(results)} results ({search_time:.2f}s)[/]")
 
-@index_app.command("status")
-def index_status(
-    path: Annotated[Path, typer.Argument(help="Directory to check")] = Path("."),
-):
-    """Show index status for a directory."""
-    try:
-        from .semantic import SemanticIndex
-    except ImportError as e:
-        err_console.print(f"[red]Error:[/] {e}")
-        raise typer.Exit(EXIT_ERROR)
-
-    path = path.resolve()
-    index = SemanticIndex(path)
-
-    if index.is_indexed():
-        count = index.count()
-        console.print(f"[green]✓[/] Index exists: {count} vectors")
-        console.print(f"[dim]  Location: {index.index_dir}[/]")
-    else:
-        console.print("[yellow]○[/] No index found")
-        console.print("[dim]  Run: hhg index build[/]")
-
-
-@index_app.command("clear")
-def index_clear(
-    path: Annotated[Path, typer.Argument(help="Directory to clear")] = Path("."),
-):
-    """Delete semantic search index."""
-    try:
-        from .semantic import SemanticIndex
-    except ImportError as e:
-        err_console.print(f"[red]Error:[/] {e}")
-        raise typer.Exit(EXIT_ERROR)
-
-    path = path.resolve()
-    index = SemanticIndex(path)
-
-    if index.is_indexed():
-        index.clear()
-        console.print("[green]✓[/] Index cleared")
-    else:
-        console.print("[yellow]No index to clear[/]")
-
-
-@index_app.command("search")
-def index_search(
-    query: Annotated[str, typer.Argument(help="Search query")],
-    path: Annotated[Path, typer.Argument(help="Directory to search")] = Path("."),
-    n: Annotated[int, typer.Option("-n", help="Number of results")] = 10,
-    json_output: Annotated[bool, typer.Option("--json", help="Output JSON")] = False,
-    context: Annotated[int, typer.Option("-C", "--context", help="Lines of context")] = 0,
-):
-    """Semantic search using embeddings (requires index)."""
-    try:
-        from .semantic import SemanticIndex
-    except ImportError as e:
-        err_console.print(f"[red]Error:[/] {e}")
-        raise typer.Exit(EXIT_ERROR)
-
-    path = path.resolve()
-    index = SemanticIndex(path)
-
-    if not index.is_indexed():
-        err_console.print("[yellow]No index found. Building...[/]")
-        # Auto-build index
-        from .scanner import scan
-
-        files = scan(str(path), ".", include_hidden=False)
-        if files:
-            index.index(files)
-        else:
-            err_console.print("[red]Error:[/] No files to index")
-            raise typer.Exit(EXIT_ERROR)
-
-    # Search
-    results = index.search(query, k=n)
-
-    if json_output:
-        print(json.dumps(results))
         raise typer.Exit(EXIT_MATCH if results else EXIT_NO_MATCH)
 
+    # Fast mode: grep + rerank (no index)
+    if fast:
+        if not quiet:
+            err_console.print("[dim]Searching (grep + rerank)...[/]")
+
+        t0 = time.perf_counter()
+        results = fast_search(query, path, n=n)
+        search_time = time.perf_counter() - t0
+
+        if not results:
+            if not json_output:
+                err_console.print("[dim]No matches found[/]")
+            raise typer.Exit(EXIT_NO_MATCH)
+
+        # Filter by threshold
+        if threshold != 0.0:
+            results = [r for r in results if r.get("score", 0) >= threshold]
+
+        results = filter_results(results, file_types, exclude)
+        print_results(results, json_output, files_only, compact, root=path)
+
+        if not quiet and not json_output and not files_only:
+            err_console.print(f"[dim]{len(results)} results ({search_time:.2f}s)[/]")
+
+        raise typer.Exit(EXIT_MATCH if results else EXIT_NO_MATCH)
+
+    # Default: semantic search
+    # Check omendb is available
+    from .semantic import HAS_OMENDB
+
+    if not HAS_OMENDB:
+        err_console.print("[red]Error:[/] omendb not installed (required for semantic search)")
+        err_console.print("Install with: pip install 'hygrep[semantic]'")
+        err_console.print("\n[dim]Tip: Use -e for exact match without semantic search[/]")
+        raise typer.Exit(EXIT_ERROR)
+
+    # Walk up to find existing index, or determine where to create one
+    index_root, existing_index = find_index(path)
+    search_path = path  # May be a subdir of index_root
+
+    # Check if index exists, build if not
+    if existing_index is None:
+        if no_index:
+            err_console.print("[red]Error:[/] No index found (use without --no-index to build)")
+            raise typer.Exit(EXIT_ERROR)
+        if not quiet:
+            err_console.print("[yellow]No index found. Building...[/]")
+        # Build at search_path (becomes the new index_root)
+        build_index(path, quiet=quiet)
+        index_root = path
+        if not quiet:
+            err_console.print()
+    elif not no_index:
+        # Found existing index - check for stale files and auto-update
+        from .scanner import scan
+        from .semantic import SemanticIndex
+
+        if not quiet and index_root != search_path:
+            err_console.print(f"[dim]Using index at {index_root}[/]")
+
+        files = scan(str(index_root), ".", include_hidden=False)
+        index = SemanticIndex(index_root)
+        stale_count = index.needs_update(files)
+
+        if stale_count > 0:
+            if not quiet:
+                err_console.print(f"[dim]Updating index ({stale_count} files changed)...[/]")
+            stats = index.update(files)
+            if not quiet and stats.get("blocks", 0) > 0:
+                err_console.print(f"[dim]  Updated {stats['blocks']} blocks[/]")
+
+    # Run semantic search
+    if not quiet:
+        err_console.print(f"[dim]Searching for: {query}[/]")
+
+    t0 = time.perf_counter()
+    results = semantic_search(query, search_path, index_root, n=n, threshold=threshold)
+    search_time = time.perf_counter() - t0
+
     if not results:
-        err_console.print("[dim]No results.[/]")
+        if not json_output:
+            err_console.print("[dim]No results found[/]")
         raise typer.Exit(EXIT_NO_MATCH)
 
-    # Print results
-    for item in results:
-        _print_result(item, fast=False, use_color=True, context=context)
+    results = filter_results(results, file_types, exclude)
+    print_results(results, json_output, files_only, compact, root=path)
 
-    raise typer.Exit(EXIT_MATCH)
+    if not quiet and not json_output and not files_only:
+        err_console.print(f"[dim]{len(results)} results ({search_time:.2f}s)[/]")
 
-
-# ============================================================================
-# Helper Functions
-# ============================================================================
+    raise typer.Exit(EXIT_MATCH if results else EXIT_NO_MATCH)
 
 
-def _is_regex_pattern(query: str) -> bool:
-    """Check if query contains regex metacharacters."""
-    return any(c in query for c in r"*()[]\\|+?^$.{}")
+@app.command()
+def status(path: Path = typer.Argument(Path("."), help="Directory")):
+    """Show index status."""
+    from .semantic import HAS_OMENDB, SemanticIndex
+
+    if not HAS_OMENDB:
+        err_console.print("[red]Error:[/] omendb not installed")
+        err_console.print("Install with: pip install 'hygrep[semantic]'")
+        raise typer.Exit(EXIT_ERROR)
+
+    path = path.resolve()
+    index_path = get_index_path(path)
+
+    if not index_exists(path):
+        err_console.print(f"[yellow]No index[/] at {index_path}")
+        raise typer.Exit()
+
+    index = SemanticIndex(path)
+    count = index.count()
+    console.print(f"[green]✓[/] Index: {count} vectors")
+    console.print(f"  Location: {index_path}")
 
 
-def _load_gitignore(root: Path) -> pathspec.PathSpec | None:
-    """Load .gitignore patterns from root directory and parents."""
-    patterns = []
-    current = root.resolve()
+@app.command()
+def rebuild(
+    path: Path = typer.Argument(Path("."), help="Directory"),
+    quiet: bool = typer.Option(False, "-q", "--quiet", help="Suppress progress"),
+):
+    """Rebuild index from scratch."""
+    from .semantic import HAS_OMENDB, SemanticIndex
 
-    while current != current.parent:
-        gitignore = current / ".gitignore"
-        if gitignore.exists():
-            with contextlib.suppress(OSError, UnicodeDecodeError):
-                patterns.extend(gitignore.read_text().splitlines())
-        if (current / ".git").exists():
-            break
-        current = current.parent
+    if not HAS_OMENDB:
+        err_console.print("[red]Error:[/] omendb not installed")
+        raise typer.Exit(EXIT_ERROR)
 
-    if not patterns:
-        return None
-    return pathspec.PathSpec.from_lines("gitwildmatch", patterns)
+    path = path.resolve()
 
+    # Clear existing
+    if index_exists(path):
+        index = SemanticIndex(path)
+        index.clear()
+        if not quiet:
+            err_console.print("[dim]Cleared existing index[/]")
 
-def _get_lexer_for_file(filepath: str) -> str | None:
-    """Get Pygments lexer name for a file based on extension."""
-    ext = Path(filepath).suffix.lower()
-    # pathlib.suffix returns empty string for multi-byte emoji extensions like .🔥
-    if not ext and filepath.endswith(".🔥"):
-        ext = ".🔥"
-    return EXT_TO_LEXER.get(ext)
+    # Build fresh
+    build_index(path, quiet=quiet)
 
 
-def _print_result(item: dict, fast: bool, use_color: bool, context: int):
-    """Print a single search result."""
-    file = item["file"]
-    name = item["name"]
-    score = item["score"]
-    kind = item["type"]
-    start_line = item["start_line"]
-    content = item.get("content", "")
+@app.command()
+def clean(path: Path = typer.Argument(Path("."), help="Directory")):
+    """Delete index."""
+    from .semantic import HAS_OMENDB, SemanticIndex
 
-    if use_color:
-        path_str = f"[cyan]{file}[/]:[green]{start_line}[/]"
-        type_str = f"[yellow]\\[{kind}][/]"
-        name_str = f"[bold]{name}[/]"
-        if fast:
-            console.print(f"{path_str} {type_str} {name_str}")
-        else:
-            score_str = f"[magenta]({score:.2f})[/]"
-            console.print(f"{path_str} {type_str} {name_str} {score_str}")
-    else:
-        if fast:
-            print(f"{file}:{start_line} [{kind}] {name}")
-        else:
-            print(f"{file}:{start_line} [{kind}] {name} ({score:.2f})")
+    if not HAS_OMENDB:
+        err_console.print("[red]Error:[/] omendb not installed")
+        raise typer.Exit(EXIT_ERROR)
 
-    # Show context with syntax highlighting
-    if context > 0 and content:
-        lines = content.splitlines()
-        context_lines = lines[:context]
-        context_text = "\n".join(context_lines)
+    path = path.resolve()
 
-        if use_color:
-            # Infer language from file extension
-            lexer = _get_lexer_for_file(file)
-            if lexer:
-                syntax = Syntax(
-                    context_text,
-                    lexer,
-                    line_numbers=True,
-                    start_line=start_line,
-                    indent_guides=False,
-                    word_wrap=False,
-                )
-                console.print(syntax)
-            else:
-                # Fallback to plain text with line numbers
-                for i, line in enumerate(context_lines):
-                    line_num = start_line + i
-                    console.print(f"  [green]{line_num:4d}[/] │ {line}")
-        else:
-            for i, line in enumerate(context_lines):
-                line_num = start_line + i
-                print(f"  {line_num:4d} │ {line}")
+    if not index_exists(path):
+        err_console.print("[dim]No index to delete[/]")
+        raise typer.Exit()
 
-        if len(lines) > context:
-            remaining = len(lines) - context
-            if use_color:
-                console.print(f"  [dim]... ({remaining} more lines)[/]")
-            else:
-                print(f"       ... ({remaining} more lines)")
-        print()
-
-
-def _print_stats(stats: dict, reranker, use_color: bool):
-    """Print timing statistics."""
-    if use_color:
-        console.print()
-        table = Table(title="[bold]Stats[/]", show_header=False, box=None)
-        table.add_column("Metric", style="dim")
-        table.add_column("Time", justify="right")
-        table.add_row("Scan", f"{stats['scan_ms']}ms")
-        table.add_row("Filter", f"{stats['filter_ms']}ms")
-        table.add_row("Rerank", f"{stats['rerank_ms']}ms")
-        table.add_row("Total", f"[bold]{stats['total_ms']}ms[/]")
-        if reranker:
-            provider = reranker.provider.replace("ExecutionProvider", "")
-            table.add_row("Device", provider)
-        console.print(table)
-    else:
-        print("\nStats:")
-        print(f"  Scan:   {stats['scan_ms']:>5}ms")
-        print(f"  Filter: {stats['filter_ms']:>5}ms")
-        print(f"  Rerank: {stats['rerank_ms']:>5}ms")
-        print(f"  Total:  {stats['total_ms']:>5}ms")
-
-
-# ============================================================================
-# Shell Completions
-# ============================================================================
-
-BASH_COMPLETION = """
-_hhg() {
-    local cur prev opts cmds
-    COMPREPLY=()
-    cur="${COMP_WORDS[COMP_CWORD]}"
-    prev="${COMP_WORDS[COMP_CWORD-1]}"
-    opts="-n -t -C -q -v -h --json --fast --quiet --version --help"
-    opts="$opts --type --context --max-candidates --color --no-ignore"
-    opts="$opts --stats --min-score --exclude --hidden"
-    cmds="info model"
-
-    if [[ "${COMP_WORDS[1]}" == "model" ]]; then
-        COMPREPLY=( $(compgen -W "install clean status --force" -- ${cur}) )
-        return 0
-    fi
-
-    case "${prev}" in
-        -t|--type)
-            local types="py js ts rust rs go mojo java c cpp cs rb php sh md json yaml toml"
-            COMPREPLY=( $(compgen -W "${types}" -- ${cur}) )
-            return 0
-            ;;
-        --color)
-            COMPREPLY=( $(compgen -W "auto always never" -- ${cur}) )
-            return 0
-            ;;
-    esac
-
-    if [[ ${cur} == -* ]] ; then
-        COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
-        return 0
-    fi
-
-    if [[ ${COMP_CWORD} -eq 1 ]]; then
-        COMPREPLY=( $(compgen -W "${cmds}" -- ${cur}) $(compgen -d -- ${cur}) )
-        return 0
-    fi
-
-    COMPREPLY=( $(compgen -d -- ${cur}) )
-}
-complete -F _hhg hhg
-complete -F _hhg hygrep
-"""
-
-ZSH_COMPLETION = """
-#compdef hhg hygrep
-
-_hhg() {
-    local -a commands
-    commands=(
-        'info:Show installation status'
-        'model:Manage the reranking model'
-    )
-
-    if (( CURRENT == 2 )); then
-        _describe -t commands 'command' commands
-        _files -/
-        return
-    fi
-
-    case "${words[2]}" in
-        model)
-            local -a model_cmds
-            model_cmds=('install:Download' 'clean:Remove cache' 'status:Show status')
-            _describe -t commands 'model command' model_cmds
-            ;;
-        *)
-            _arguments -s \\
-                '-n[Number of results]:count:' \\
-                '-t[File type]:type:(py js ts rust rs go mojo java c cpp cs rb)' \\
-                '--type[File type]:type:(py js ts rust rs go mojo java c cpp cs rb)' \\
-                '-C[Context lines]:lines:' \\
-                '--context[Context lines]:lines:' \\
-                '-q[Quiet mode]' \\
-                '--quiet[Quiet mode]' \\
-                '-v[Version]' \\
-                '--version[Version]' \\
-                '-h[Help]' \\
-                '--help[Help]' \\
-                '--json[JSON output]' \\
-                '--fast[Skip reranking]' \\
-                '--max-candidates[Max to rerank]:count:' \\
-                '--color[Color]:when:(auto always never)' \\
-                '--no-ignore[Ignore .gitignore]' \\
-                '--stats[Show stats]' \\
-                '--min-score[Min score]:score:' \\
-                '--exclude[Exclude pattern]:pattern:' \\
-                '--hidden[Include hidden]' \\
-                '*:directory:_files -/'
-            ;;
-    esac
-}
-
-_hhg "$@"
-"""
-
-FISH_COMPLETION = """
-# Commands
-complete -c hhg -n "__fish_use_subcommand" -a "info" -d "Show status"
-complete -c hhg -n "__fish_use_subcommand" -a "model" -d "Manage model"
-
-# Model subcommands
-complete -c hhg -n "__fish_seen_subcommand_from model" -a "install" -d "Download"
-complete -c hhg -n "__fish_seen_subcommand_from model" -a "clean" -d "Remove cache"
-complete -c hhg -n "__fish_seen_subcommand_from model" -a "status" -d "Show status"
-
-# Options
-complete -c hhg -s n -d "Results count"
-complete -c hhg -s t -l type -d "File type" -xa "py js ts rust rs go mojo java c cpp cs rb"
-complete -c hhg -s C -l context -d "Context lines"
-complete -c hhg -s q -l quiet -d "Quiet mode"
-complete -c hhg -s v -l version -d "Version"
-complete -c hhg -s h -l help -d "Help"
-complete -c hhg -l json -d "JSON output"
-complete -c hhg -l fast -d "Skip reranking"
-complete -c hhg -l max-candidates -d "Max to rerank"
-complete -c hhg -l color -d "Color" -xa "auto always never"
-complete -c hhg -l no-ignore -d "Ignore .gitignore"
-complete -c hhg -l stats -d "Show stats"
-complete -c hhg -l min-score -d "Min score"
-complete -c hhg -l exclude -d "Exclude pattern"
-complete -c hhg -l hidden -d "Include hidden"
-"""
+    index = SemanticIndex(path)
+    index.clear()
+    console.print("[green]✓[/] Index deleted")
 
 
 def main():
-    """Main entry point."""
-
-    # Pre-parse index commands before Typer mangles the args
-    if len(sys.argv) > 1 and sys.argv[1] == "index":
-        args = sys.argv[2:]  # Everything after "index"
-        subcmd = args[0] if args else ""
-        target_path = Path(args[1]) if len(args) > 1 else Path(".")
-
-        try:
-            if subcmd == "build":
-                index_build(target_path, quiet=False)
-            elif subcmd == "status":
-                index_status(target_path)
-            elif subcmd == "clear":
-                index_clear(target_path)
-            elif subcmd == "search":
-                if len(args) >= 2:
-                    search_query = args[1]
-                    search_path = Path(args[2]) if len(args) > 2 else Path(".")
-                    index_search(search_query, search_path)
-                else:
-                    err_console.print("[yellow]Usage:[/] hhg index search <query> [path]")
-                    raise SystemExit(2)
-            elif subcmd in ("--help", "-h", ""):
-                console.print("[bold]hhg index[/] - Semantic search index management\n")
-                console.print("Commands:")
-                console.print("  [cyan]build[/] [path]         Build index for directory")
-                console.print("  [cyan]status[/] [path]        Show index status")
-                console.print("  [cyan]clear[/] [path]         Delete index")
-                console.print("  [cyan]search[/] <query> [path] Search using embeddings")
-            else:
-                err_console.print(f"[red]Error:[/] Unknown command '{subcmd}'")
-                err_console.print("Run [cyan]hhg index --help[/] for usage")
-                raise SystemExit(2)
-        except typer.Exit as e:
-            raise SystemExit(e.exit_code)
-        return
-
+    """Entry point."""
     app()
 
 
