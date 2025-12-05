@@ -47,9 +47,10 @@ omendb = ">=0.0.1a1"
 [tasks]
 # Build Mojo scanner as Python extension
 build-ext = "mojo build src/scanner/_scanner.mojo --emit shared-lib -o src/hygrep/_scanner.so"
-# Run CLI (hhg primary, hygrep also works)
-hhg = { cmd = "python -m hygrep.cli", env = { PYTHONPATH = "src" } }
-hygrep = { cmd = "python -m hygrep.cli", env = { PYTHONPATH = "src" } }
+# Run CLI v2 (semantic-first)
+hhg = { cmd = "python -m hygrep.cli_v2", env = { PYTHONPATH = "src" } }
+# Run CLI v1 (grep + rerank)
+hhg-v1 = { cmd = "python -m hygrep.cli", env = { PYTHONPATH = "src" } }
 # Run Mojo tests
 test-mojo = "mojo -I . tests/test_regex_smoke.mojo && mojo -I . tests/test_scanner.mojo"
 # Run Python tests

@@ -138,6 +138,34 @@ def grep_search(pattern: str, root: Path, regex: bool = False) -> list[dict]:
     return results
 
 
+def fast_search(
+    query: str,
+    root: Path,
+    n: int = 10,
+    max_candidates: int = 100,
+) -> list[dict]:
+    """Grep + neural rerank (no index required)."""
+    from .reranker import Reranker
+    from .scanner import scan
+
+    # Scan for matches
+    files = scan(str(root), query, include_hidden=False)
+
+    if not files:
+        return []
+
+    # Rerank with neural model
+    reranker = Reranker()
+    results = reranker.search(query, files, top_k=n, max_candidates=max_candidates)
+
+    # Normalize output format (start_line -> line)
+    for r in results:
+        if "start_line" in r:
+            r["line"] = r.pop("start_line")
+
+    return results
+
+
 def print_results(
     results: list[dict],
     json_output: bool = False,
@@ -192,9 +220,10 @@ def main(
     json_output: bool = typer.Option(False, "--json", "-j", help="JSON output"),
     compact: bool = typer.Option(False, "-c", "--compact", help="No content in output"),
     quiet: bool = typer.Option(False, "-q", "--quiet", help="Suppress progress"),
-    # Escape hatches
-    exact: bool = typer.Option(False, "-e", "--exact", help="Exact string match (grep)"),
-    regex: bool = typer.Option(False, "-r", "--regex", help="Regex match"),
+    # Modes
+    fast: bool = typer.Option(False, "-f", "--fast", help="Grep + rerank (no index)"),
+    exact: bool = typer.Option(False, "-e", "--exact", help="Exact grep (no rerank)"),
+    regex: bool = typer.Option(False, "-r", "--regex", help="Regex grep (no rerank)"),
     # Index control
     no_index: bool = typer.Option(False, "--no-index", help="Skip auto-index (fail if missing)"),
     # Meta
@@ -267,6 +296,31 @@ def main(
             raise typer.Exit(EXIT_NO_MATCH)
 
         results = results[:n]
+        print_results(results, json_output, compact, root=path)
+
+        if not quiet and not json_output:
+            err_console.print(f"[dim]{len(results)} results ({search_time:.2f}s)[/]")
+
+        raise typer.Exit(EXIT_MATCH)
+
+    # Fast mode: grep + rerank (no index)
+    if fast:
+        if not quiet:
+            err_console.print("[dim]Searching (grep + rerank)...[/]")
+
+        t0 = time.perf_counter()
+        results = fast_search(query, path, n=n)
+        search_time = time.perf_counter() - t0
+
+        if not results:
+            if not json_output:
+                err_console.print("[dim]No matches found[/]")
+            raise typer.Exit(EXIT_NO_MATCH)
+
+        # Filter by threshold
+        if threshold != 0.0:
+            results = [r for r in results if r.get("score", 0) >= threshold]
+
         print_results(results, json_output, compact, root=path)
 
         if not quiet and not json_output:
