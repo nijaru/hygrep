@@ -166,9 +166,60 @@ def fast_search(
     return results
 
 
+def filter_results(
+    results: list[dict],
+    file_types: str | None = None,
+    exclude: list[str] | None = None,
+) -> list[dict]:
+    """Filter results by file type and exclude patterns."""
+    import pathspec
+
+    if not file_types and not exclude:
+        return results
+
+    # File type filtering
+    if file_types:
+        type_map = {
+            "py": [".py", ".pyi"],
+            "js": [".js", ".jsx", ".mjs"],
+            "ts": [".ts", ".tsx"],
+            "rust": [".rs"],
+            "rs": [".rs"],
+            "go": [".go"],
+            "mojo": [".mojo", ".🔥"],
+            "java": [".java"],
+            "c": [".c", ".h"],
+            "cpp": [".cpp", ".cc", ".cxx", ".hpp", ".hh"],
+            "cs": [".cs"],
+            "rb": [".rb"],
+            "php": [".php"],
+            "sh": [".sh", ".bash", ".zsh"],
+            "md": [".md", ".markdown"],
+            "json": [".json"],
+            "yaml": [".yaml", ".yml"],
+            "toml": [".toml"],
+        }
+        allowed_exts = set()
+        for ft in file_types.split(","):
+            ft = ft.strip().lower()
+            if ft in type_map:
+                allowed_exts.update(type_map[ft])
+            else:
+                allowed_exts.add(f".{ft}")
+        results = [r for r in results if any(r["file"].endswith(ext) for ext in allowed_exts)]
+
+    # Exclude pattern filtering
+    if exclude:
+        exclude_spec = pathspec.PathSpec.from_lines("gitwildmatch", exclude)
+        results = [r for r in results if not exclude_spec.match_file(r["file"])]
+
+    return results
+
+
 def print_results(
     results: list[dict],
     json_output: bool = False,
+    files_only: bool = False,
     compact: bool = False,
     show_content: bool = True,
     root: Path = None,
@@ -181,6 +232,23 @@ def print_results(
                 r["file"] = str(Path(r["file"]).relative_to(root))
             except ValueError:
                 pass
+
+    # Files-only mode
+    if files_only:
+        seen = set()
+        if json_output:
+            files = []
+            for r in results:
+                if r["file"] not in seen:
+                    files.append(r["file"])
+                    seen.add(r["file"])
+            print(json.dumps(files))
+        else:
+            for r in results:
+                if r["file"] not in seen:
+                    console.print(f"[cyan]{r['file']}[/]")
+                    seen.add(r["file"])
+        return
 
     if json_output:
         if compact:
@@ -216,10 +284,14 @@ def main(
     path: Path = typer.Argument(Path("."), help="Directory to search"),
     # Output
     n: int = typer.Option(10, "-n", help="Number of results"),
-    threshold: float = typer.Option(0.0, "-t", "--threshold", help="Minimum score (0-1)"),
+    threshold: float = typer.Option(0.0, "--threshold", "--min-score", help="Minimum score (0-1)"),
     json_output: bool = typer.Option(False, "--json", "-j", help="JSON output"),
+    files_only: bool = typer.Option(False, "-l", "--files-only", help="List files only"),
     compact: bool = typer.Option(False, "-c", "--compact", help="No content in output"),
     quiet: bool = typer.Option(False, "-q", "--quiet", help="Suppress progress"),
+    # Filtering
+    file_types: str = typer.Option(None, "-t", "--type", help="Filter types (py,js,ts)"),
+    exclude: list[str] = typer.Option(None, "--exclude", help="Exclude glob pattern"),
     # Modes
     fast: bool = typer.Option(False, "-f", "--fast", help="Grep + rerank (no index)"),
     exact: bool = typer.Option(False, "-e", "--exact", help="Exact grep (no rerank)"),
@@ -232,9 +304,10 @@ def main(
     """Semantic code search.
 
     Examples:
-        hhg "authentication flow" ./src    # Semantic search
-        hhg -e "TODO" ./src                # Exact match (grep)
-        hhg -r "TODO.*fix" ./src           # Regex match
+        hhg "authentication flow" ./src    # Semantic search (best quality)
+        hhg -f "auth" ./src                # Grep + rerank (no index)
+        hhg -e "TODO" ./src                # Exact grep (fastest)
+        hhg -r "TODO.*fix" ./src           # Regex grep
     """
     if ctx.invoked_subcommand is not None:
         return
@@ -262,11 +335,13 @@ def main(
         console.print(
             Panel(
                 "[bold]hhg[/] - Semantic code search\n\n"
-                "Usage:\n"
-                "  hhg <query> [path]       Semantic search\n"
-                "  hhg -e <pattern> [path]  Exact match (grep)\n"
-                "  hhg -r <pattern> [path]  Regex match\n"
-                "  hhg status [path]        Index status\n"
+                "[dim]Search modes:[/]\n"
+                "  hhg <query> [path]       Semantic search (auto-indexes)\n"
+                "  hhg -f <query> [path]    Grep + neural rerank (no index)\n"
+                "  hhg -e <pattern> [path]  Exact grep (fastest)\n"
+                "  hhg -r <pattern> [path]  Regex grep\n\n"
+                "[dim]Index commands:[/]\n"
+                "  hhg status [path]        Show index status\n"
                 "  hhg rebuild [path]       Rebuild index\n"
                 "  hhg clean [path]         Delete index",
                 border_style="dim",
@@ -296,12 +371,13 @@ def main(
             raise typer.Exit(EXIT_NO_MATCH)
 
         results = results[:n]
-        print_results(results, json_output, compact, root=path)
+        results = filter_results(results, file_types, exclude)
+        print_results(results, json_output, files_only, compact, root=path)
 
-        if not quiet and not json_output:
+        if not quiet and not json_output and not files_only:
             err_console.print(f"[dim]{len(results)} results ({search_time:.2f}s)[/]")
 
-        raise typer.Exit(EXIT_MATCH)
+        raise typer.Exit(EXIT_MATCH if results else EXIT_NO_MATCH)
 
     # Fast mode: grep + rerank (no index)
     if fast:
@@ -321,12 +397,13 @@ def main(
         if threshold != 0.0:
             results = [r for r in results if r.get("score", 0) >= threshold]
 
-        print_results(results, json_output, compact, root=path)
+        results = filter_results(results, file_types, exclude)
+        print_results(results, json_output, files_only, compact, root=path)
 
-        if not quiet and not json_output:
+        if not quiet and not json_output and not files_only:
             err_console.print(f"[dim]{len(results)} results ({search_time:.2f}s)[/]")
 
-        raise typer.Exit(EXIT_MATCH)
+        raise typer.Exit(EXIT_MATCH if results else EXIT_NO_MATCH)
 
     # Default: semantic search
     # Check omendb is available
@@ -377,12 +454,13 @@ def main(
             err_console.print("[dim]No results found[/]")
         raise typer.Exit(EXIT_NO_MATCH)
 
-    print_results(results, json_output, compact, root=path)
+    results = filter_results(results, file_types, exclude)
+    print_results(results, json_output, files_only, compact, root=path)
 
-    if not quiet and not json_output:
+    if not quiet and not json_output and not files_only:
         err_console.print(f"[dim]{len(results)} results ({search_time:.2f}s)[/]")
 
-    raise typer.Exit(EXIT_MATCH)
+    raise typer.Exit(EXIT_MATCH if results else EXIT_NO_MATCH)
 
 
 @app.command()

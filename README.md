@@ -1,23 +1,44 @@
 # hygrep (hhg)
 
-**Grep + neural reranking for code search**
+**Semantic code search with automatic indexing**
 
 ```bash
 pip install hygrep
-hhg "auth" ./src
+hhg "authentication flow" ./src
 ```
 
 ## What it does
 
-1. **Grep**: Regex search finds files containing your query
-2. **Extract**: Tree-sitter parses matching files to pull out functions/classes
-3. **Rerank**: Neural model scores each code block by relevance to your query
+Describe what you're looking for in natural language, get relevant code:
 
-**Not semantic search** - no embeddings, no vector DB. Just grep → parse → rerank.
+```
+$ hhg "error handling" ./src
+src/api/handler.py:45 function handle_error
+  def handle_error(self, exc: Exception) -> Response:
+      """Handle API errors and return appropriate response."""
+      ...
 
-- **Smart context:** Returns full functions/classes, not just lines
-- **Fast:** Parallel regex recall, then neural reranking
-- **Zero indexing:** Works instantly on any codebase
+src/utils/retry.py:12 function with_retry
+  def with_retry(func, max_attempts=3):
+      """Retry function with exponential backoff on failure."""
+      ...
+```
+
+## Search Modes
+
+| Mode         | Flag      | Use Case                                     |
+| ------------ | --------- | -------------------------------------------- |
+| **Semantic** | (default) | Best quality - uses embeddings, auto-indexes |
+| **Fast**     | `-f`      | No index needed - grep + neural rerank       |
+| **Exact**    | `-e`      | Fastest - literal string match               |
+| **Regex**    | `-r`      | Pattern matching                             |
+
+```bash
+hhg "auth flow" ./src           # Semantic search (auto-indexes on first run)
+hhg -f "auth" ./src             # Grep + neural rerank (instant, no index)
+hhg -e "TODO" ./src             # Exact match (fastest)
+hhg -r "TODO.*fix" ./src        # Regex match
+```
 
 ## Install
 
@@ -29,34 +50,36 @@ uv tool install hygrep
 pipx install hygrep
 ```
 
-The binary name for hygrep is `hhg`.
-
-First search downloads the model (~83MB, cached in `~/.cache/huggingface/`).
+First search downloads the embedding model (~40MB) and builds an index.
 
 ## Usage
 
 ```bash
-hhg "query" [path]           # Search (default: current dir)
-hhg "error handling" . -n 5  # Limit to 5 results
-hhg "auth" . --fast          # Skip reranking (instant grep)
-hhg "test" . -t py,js        # Filter by file type
-hhg "config" . --json        # JSON output for agents/scripts
-hhg info                     # Check installation status
-hhg model                    # Show model info
-hhg model install            # Pre-download model (for CI/offline)
-hhg model clean              # Remove cached model
+hhg "query" [path]              # Search (default: current dir)
+hhg -n 5 "error handling" .     # Limit results
+hhg --json "auth" .             # JSON output for scripts/agents
+hhg -l "config" .               # List matching files only
+hhg -t py,js "api" .            # Filter by file type
+hhg --exclude "tests/*" "fn" .  # Exclude patterns
+hhg status                      # Check index status
+hhg rebuild                     # Rebuild index from scratch
+hhg clean                       # Delete index
 ```
 
-Run `hhg --help` for all options.
+**Note:** Options must come before positional arguments.
 
 ## Output
 
+Human-readable (default):
+
 ```
-src/auth.py:42 [function] login (0.89)
-src/session.py:15 [function] validate_token (0.76)
+src/auth.py:42 function login
+  def login(user, password):
+      """Authenticate user and create session."""
+      ...
 ```
 
-With `--json`:
+JSON (`--json`):
 
 ```json
 [
@@ -64,39 +87,42 @@ With `--json`:
     "file": "src/auth.py",
     "type": "function",
     "name": "login",
-    "start_line": 42,
-    "score": 0.89,
-    "content": "def login(user): ..."
+    "line": 42,
+    "end_line": 58,
+    "content": "def login(user, password): ...",
+    "score": 0.87
   }
 ]
 ```
 
-## Config
+Compact JSON (`--json --compact`): Same but without `content` field.
 
-Optional `~/.config/hygrep/config.toml`:
+## How it Works
 
-```toml
-n = 10
-color = "always"
-exclude = ["*.test.js", "tests/*"]
-cache_dir = "~/.cache/hygrep"  # Custom model cache (default: shared HF cache)
+**Default mode (semantic search):**
+
+```
+Query → Embed → Vector search → Results
+         ↓
+    Auto-indexes on first run (.hhg/ directory)
+    Auto-updates when files change
+```
+
+**Fast mode (`-f`):**
+
+```
+Query → Grep scan → Tree-sitter extract → Neural rerank → Results
+```
+
+**Exact/Regex mode (`-e`/`-r`):**
+
+```
+Pattern → Grep scan → Tree-sitter extract → Results
 ```
 
 ## Supported Languages
 
 Bash, C, C++, C#, Elixir, Go, Java, JavaScript, JSON, Kotlin, Lua, Mojo, PHP, Python, Ruby, Rust, Svelte, Swift, TOML, TypeScript, YAML, Zig
-
-## How it works
-
-```
-Query → Parallel regex scan → Tree-sitter extraction → ONNX reranking → Results
-```
-
-| Stage   | What                                          |
-| ------- | --------------------------------------------- |
-| Recall  | Mojo/Python parallel scanner (~20k files/sec) |
-| Extract | Tree-sitter AST (functions, classes)          |
-| Rerank  | ONNX cross-encoder (mxbai-rerank-xsmall-v1)   |
 
 ## Development
 
