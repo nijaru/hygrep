@@ -75,7 +75,7 @@ def build_index(root: Path, quiet: bool = False) -> None:
         return
 
     # Interactive mode: show spinner
-    with Status("Scanning files...", console=err_console) as status:
+    with Status("Scanning files...", console=err_console):
         t0 = time.perf_counter()
         files = scan(str(root), ".", include_hidden=False)
         scan_time = time.perf_counter() - t0
@@ -89,7 +89,7 @@ def build_index(root: Path, quiet: bool = False) -> None:
     # Phase 2: Extract and embed
     index = SemanticIndex(root)
 
-    with Status("Indexing...", console=err_console) as status:
+    with Status("Indexing...", console=err_console):
         t0 = time.perf_counter()
         stats = index.index(files)
         index_time = time.perf_counter() - t0
@@ -132,8 +132,12 @@ def semantic_search(
     return results
 
 
-def grep_search(pattern: str, root: Path, regex: bool = False) -> list[dict]:
-    """Fast grep search (escape hatch)."""
+def grep_search(pattern: str, root: Path) -> list[dict]:
+    """Fast grep search (escape hatch).
+
+    Note: Scanner uses POSIX regex, so both exact and regex modes
+    work the same at this level. The distinction is for user clarity.
+    """
     from .extractor import ContextExtractor
     from .scanner import scan
 
@@ -350,9 +354,8 @@ def search(
         raise typer.Exit()
     elif query == "build":
         if path_str in ("--help", "-h"):
-            console.print(
-                "Usage: hhg build [PATH] [--force] [-q]\n\nBuild/update index for PATH (default: current dir)."
-            )
+            console.print("Usage: hhg build [PATH] [--force] [-q]\n\n")
+            console.print("Build/update index for PATH (default: current dir).")
             raise typer.Exit()
         # Handle --force flag
         force_build = path_str in ("--force", "-f")
@@ -429,7 +432,7 @@ def search(
             err_console.print(f"[dim]Searching ({mode})...[/]")
 
         t0 = time.perf_counter()
-        results = grep_search(query, path, regex=regex)
+        results = grep_search(query, path)
         search_time = time.perf_counter() - t0
 
         if not results:

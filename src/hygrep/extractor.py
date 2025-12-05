@@ -4,9 +4,6 @@ import sys
 from typing import Any
 
 import tree_sitter_bash
-
-# Text/doc file extensions (paragraph-based extraction)
-TEXT_EXTENSIONS = {".md", ".mdx", ".markdown", ".txt", ".rst"}
 import tree_sitter_c
 import tree_sitter_c_sharp
 import tree_sitter_cpp
@@ -27,6 +24,7 @@ import tree_sitter_toml
 import tree_sitter_typescript
 import tree_sitter_yaml
 import tree_sitter_zig
+from tree_sitter import Language, Parser, Query, QueryCursor
 
 try:
     import tree_sitter_mojo
@@ -34,7 +32,9 @@ try:
     HAS_MOJO = True
 except ImportError:
     HAS_MOJO = False
-from tree_sitter import Language, Parser, Query, QueryCursor
+
+# Text/doc file extensions (paragraph-based extraction)
+TEXT_EXTENSIONS = {".md", ".mdx", ".markdown", ".txt", ".rst"}
 
 LANGUAGE_CAPSULES = {
     ".bash": tree_sitter_bash.language(),
