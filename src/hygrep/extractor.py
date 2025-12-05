@@ -4,6 +4,9 @@ import sys
 from typing import Any
 
 import tree_sitter_bash
+
+# Text/doc file extensions (paragraph-based extraction)
+TEXT_EXTENSIONS = {".md", ".mdx", ".markdown", ".txt", ".rst"}
 import tree_sitter_c
 import tree_sitter_c_sharp
 import tree_sitter_cpp
@@ -235,6 +238,58 @@ class ContextExtractor:
         }
         return ext_map.get(ext)
 
+    def _extract_text_blocks(
+        self,
+        file_path: str,
+        content: str,
+    ) -> list[dict[str, Any]]:
+        """Extract text blocks from markdown/text files using paragraph chunking."""
+        blocks = []
+
+        # Split on blank lines (one or more empty lines)
+        paragraphs = re.split(r"\n\s*\n", content)
+
+        line_num = 1
+        for para in paragraphs:
+            para = para.strip()
+
+            # Skip tiny fragments (headers alone, empty, etc.)
+            if len(para) < 30:
+                line_num += para.count("\n") + 2
+                continue
+
+            # Determine block type
+            block_type = "text"
+            name = None
+
+            # Check if starts with markdown header
+            header_match = re.match(r"^(#{1,6})\s+(.+?)(?:\n|$)", para)
+            if header_match:
+                name = header_match.group(2).strip()
+                block_type = "section"
+
+            # Check for code block
+            if para.startswith("```") or para.startswith("~~~"):
+                block_type = "code"
+                # Try to get language from fence
+                fence_match = re.match(r"^[`~]{3,}(\w+)?", para)
+                if fence_match and fence_match.group(1):
+                    name = fence_match.group(1)
+
+            blocks.append(
+                {
+                    "type": block_type,
+                    "name": name,
+                    "start_line": line_num,
+                    "end_line": line_num + para.count("\n"),
+                    "content": para,
+                }
+            )
+
+            line_num += para.count("\n") + 2  # +2 for the blank line separator
+
+        return blocks
+
     def _fallback_sliding_window(
         self,
         file_path: str,
@@ -297,6 +352,15 @@ class ContextExtractor:
                 return []
 
         _, ext = os.path.splitext(file_path)
+        ext_lower = ext.lower()
+
+        # Handle text/doc files with paragraph-based extraction
+        if ext_lower in TEXT_EXTENSIONS:
+            blocks = self._extract_text_blocks(file_path, content)
+            if blocks:
+                return blocks
+            return self._fallback_sliding_window(file_path, content, query)
+
         parser = self.parsers.get(ext)
 
         if not parser:

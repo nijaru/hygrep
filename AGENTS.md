@@ -70,7 +70,7 @@ hatch_build.py          # Platform wheel hook
 | Python | >=3.11, <3.14 | CLI + inference |
 | ONNX Runtime | >=1.16 | Model execution |
 | Tree-sitter | >=0.24 | AST parsing (22 languages) |
-| omendb | >=0.0.1a1 | Vector database (optional dep) |
+| omendb | >=0.0.1a1 | Vector database |
 | Embeddings | ModernBERT-embed-base | INT8, 256 dims, ~40MB |
 | Reranker | mxbai-rerank-xsmall-v1 | INT8, ~40MB (for -f mode) |
 

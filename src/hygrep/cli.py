@@ -58,13 +58,7 @@ def index_exists(root: Path) -> bool:
 
 def build_index(root: Path, quiet: bool = False) -> None:
     """Build semantic index for directory."""
-    from rich.progress import (
-        BarColumn,
-        Progress,
-        SpinnerColumn,
-        TaskProgressColumn,
-        TextColumn,
-    )
+    from rich.status import Status
 
     from .scanner import scan
     from .semantic import SemanticIndex
@@ -80,40 +74,25 @@ def build_index(root: Path, quiet: bool = False) -> None:
         index.index(files)
         return
 
-    # Interactive mode: show progress
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TaskProgressColumn(),
-        console=err_console,
-        transient=True,
-    ) as progress:
-        # Phase 1: Scan
-        scan_task = progress.add_task("Scanning files...", total=None)
+    # Interactive mode: show spinner
+    with Status("Scanning files...", console=err_console) as status:
         t0 = time.perf_counter()
         files = scan(str(root), ".", include_hidden=False)
         scan_time = time.perf_counter() - t0
-        progress.remove_task(scan_task)
 
-        if not files:
-            err_console.print("[yellow]No files found to index[/]")
-            return
+    if not files:
+        err_console.print("[yellow]No files found to index[/]")
+        return
 
-        err_console.print(f"[dim]Found {len(files)} files ({scan_time:.1f}s)[/]")
+    err_console.print(f"[dim]Found {len(files)} files ({scan_time:.1f}s)[/]")
 
-        # Phase 2: Extract and embed
-        index = SemanticIndex(root)
-        embed_task = progress.add_task("Embedding code blocks...", total=100)
+    # Phase 2: Extract and embed
+    index = SemanticIndex(root)
 
-        def on_progress(current: int, total: int, msg: str) -> None:
-            if total > 0:
-                progress.update(embed_task, completed=current, total=total)
-
+    with Status("Indexing...", console=err_console) as status:
         t0 = time.perf_counter()
-        stats = index.index(files, on_progress=on_progress)
+        stats = index.index(files)
         index_time = time.perf_counter() - t0
-        progress.remove_task(embed_task)
 
     # Summary
     err_console.print(
