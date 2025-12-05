@@ -323,11 +323,15 @@ class SemanticIndex:
         return self.manifest_path.exists()
 
     def count(self) -> int:
-        """Count indexed vectors."""
+        """Count indexed vectors from manifest."""
         if not self.is_indexed():
             return 0
-        db = self._ensure_db()
-        return db.count()
+        manifest = self._load_manifest()
+        total = 0
+        for file_info in manifest.get("files", {}).values():
+            if isinstance(file_info, dict):
+                total += len(file_info.get("blocks", []))
+        return total
 
     def get_stale_files(self, files: dict[str, str]) -> tuple[list[str], list[str]]:
         """Find files that need reindexing.
