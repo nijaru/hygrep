@@ -96,7 +96,7 @@ def _is_binary_content(content: bytes, check_size: int = 8192) -> bool:
     return b"\x00" in content[:check_size]
 
 
-def scan(root: str, pattern: str, include_hidden: bool = False) -> dict[str, str]:
+def scan(root: str | Path, pattern: str, include_hidden: bool = False) -> dict[str, str]:
     """
     Scan directory tree for files matching regex pattern.
 
@@ -108,7 +108,7 @@ def scan(root: str, pattern: str, include_hidden: bool = False) -> dict[str, str
     Returns:
         Dict mapping file paths to their contents
     """
-    root_path = Path(root)
+    root_path = Path(root) if isinstance(root, str) else root
     if not root_path.exists():
         raise ValueError(f"Path does not exist: {root}")
     if not root_path.is_dir():

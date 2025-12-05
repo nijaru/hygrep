@@ -354,8 +354,10 @@ def search(
         raise typer.Exit()
     elif query == "build":
         if path_str in ("--help", "-h"):
-            console.print("Usage: hhg build [PATH] [--force] [-q]\n\n")
-            console.print("Build/update index for PATH (default: current dir).")
+            console.print(
+                "Usage: hhg build [PATH] [--force] [-q]\n\n"
+                "Build/update index for PATH (default: current dir)."
+            )
             raise typer.Exit()
         # Handle --force flag
         force_build = path_str in ("--force", "-f")
@@ -720,7 +722,7 @@ def _get_model_status() -> list[dict]:
 
 
 @model_app.callback(invoke_without_command=True)
-def model_status(ctx: typer.Context):
+def model_status(ctx: typer.Context) -> None:
     """Show model status."""
     if ctx.invoked_subcommand is not None:
         return
@@ -743,7 +745,7 @@ def model_status(ctx: typer.Context):
 
 
 @model_app.command()
-def install():
+def install() -> None:
     """Download or reinstall models."""
     from huggingface_hub import hf_hub_download
 

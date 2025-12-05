@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 from .embedder import DIMENSIONS, Embedder
@@ -159,7 +160,7 @@ class SemanticIndex:
         self,
         files: dict[str, str],
         batch_size: int = 128,
-        on_progress: callable = None,
+        on_progress: Callable[[int, int, str], None] | None = None,
     ) -> dict:
         """Index code files for semantic search.
 
@@ -371,7 +372,7 @@ class SemanticIndex:
     def update(
         self,
         files: dict[str, str],
-        on_progress: callable = None,
+        on_progress: Callable[[int, int, str], None] | None = None,
     ) -> dict:
         """Incremental update - only reindex changed files.
 
