@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hygrep"
-version = "0.0.9"
+version = "0.0.10"
 description = "Grep + neural reranking for code search"
 readme = "README.md"
 license = "MIT"
@@ -57,7 +57,7 @@ dependencies = [
     "huggingface-hub>=0.20",
     "typer>=0.9",
     "rich>=13.0",
-    "omendb>=0.0.1a1",
+    "omendb>=0.0.2",
 ]
 
 [project.optional-dependencies]
