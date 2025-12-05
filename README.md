@@ -48,6 +48,8 @@ hhg -r "TODO.*fix" ./src        # Regex match
 
 ## Install
 
+Requires Python 3.11-3.13 (3.14 not yet supported due to onnxruntime).
+
 ```bash
 pip install hygrep
 # or
