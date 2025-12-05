@@ -101,8 +101,8 @@ def semantic_search(
     index = SemanticIndex(root.resolve())
     results = index.search(query, k=n)
 
-    # Filter by threshold if specified
-    if threshold > 0:
+    # Filter by threshold if specified (any non-zero value)
+    if threshold != 0.0:
         results = [r for r in results if r.get("score", 0) >= threshold]
 
     return results
