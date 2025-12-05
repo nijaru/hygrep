@@ -9,33 +9,39 @@ hhg "authentication flow" ./src
 
 ## What it does
 
-Describe what you're looking for in natural language, get relevant code:
+Search your codebase using natural language. Results are functions and classes ranked by relevance:
 
 ```
-$ hhg "error handling" ./src
-src/api/handler.py:45 function handle_error
-  def handle_error(self, exc: Exception) -> Response:
-      """Handle API errors and return appropriate response."""
-      ...
+$ hhg "error handling" ./tests/golden
+No index found. Building...
+Found 4 files (0.0s)
+✓ Indexed 59 blocks from 4 files (5.4s)
 
-src/utils/retry.py:12 function with_retry
-  def with_retry(func, max_attempts=3):
-      """Retry function with exponential backoff on failure."""
-      ...
+Searching for: error handling
+api_handlers.ts:127 function errorHandler
+  function errorHandler(err: Error, req: Request, res: Response, next: NextFunc...
+    console.error('API Error:', err.message);
+
+errors.rs:7 class AppError
+  pub enum AppError {
+      /// Database operation failed.
+      Database(DatabaseError),
+
+2 results (0.60s)
 ```
 
 ## Search Modes
 
-| Mode         | Flag      | Use Case                                     |
-| ------------ | --------- | -------------------------------------------- |
-| **Semantic** | (default) | Best quality - uses embeddings, auto-indexes |
-| **Fast**     | `-f`      | No index needed - grep + neural rerank       |
-| **Exact**    | `-e`      | Fastest - literal string match               |
-| **Regex**    | `-r`      | Pattern matching                             |
+| Mode         | Flag      | Use Case                              |
+| ------------ | --------- | ------------------------------------- |
+| **Semantic** | (default) | Best quality, uses embeddings + index |
+| **Fast**     | `-f`      | No index, grep + neural rerank        |
+| **Exact**    | `-e`      | Fastest, literal string match         |
+| **Regex**    | `-r`      | Pattern matching                      |
 
 ```bash
-hhg "auth flow" ./src           # Semantic search (auto-indexes on first run)
-hhg -f "auth" ./src             # Grep + neural rerank (instant, no index)
+hhg "auth flow" ./src           # Semantic (auto-indexes on first run)
+hhg -f "validate" ./src         # Grep + neural rerank (no index needed)
 hhg -e "TODO" ./src             # Exact match (fastest)
 hhg -r "TODO.*fix" ./src        # Regex match
 ```
@@ -50,7 +56,7 @@ uv tool install hygrep
 pipx install hygrep
 ```
 
-First search downloads the embedding model (~40MB) and builds an index.
+First search builds an index automatically (stored in `.hhg/`). Models are downloaded from HuggingFace and cached.
 
 ## Usage
 
@@ -61,16 +67,16 @@ hhg --json "auth" .             # JSON output for scripts/agents
 hhg -l "config" .               # List matching files only
 hhg -t py,js "api" .            # Filter by file type
 hhg --exclude "tests/*" "fn" .  # Exclude patterns
-hhg status                      # Check index status
-hhg rebuild                     # Rebuild index from scratch
-hhg clean                       # Delete index
+hhg status [path]               # Check index status
+hhg rebuild [path]              # Rebuild index from scratch
+hhg clean [path]                # Delete index
 ```
 
 **Note:** Options must come before positional arguments.
 
 ## Output
 
-Human-readable (default):
+Default:
 
 ```
 src/auth.py:42 function login
@@ -95,16 +101,16 @@ JSON (`--json`):
 ]
 ```
 
-Compact JSON (`--json --compact`): Same but without `content` field.
+Compact JSON (`--json --compact`): Same fields without `content`.
 
 ## How it Works
 
-**Default mode (semantic search):**
+**Semantic mode (default):**
 
 ```
 Query → Embed → Vector search → Results
          ↓
-    Auto-indexes on first run (.hhg/ directory)
+    Auto-indexes on first run (.hhg/)
     Auto-updates when files change
 ```
 
