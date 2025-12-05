@@ -1,39 +1,46 @@
 # hygrep (hhg)
 
-**Grep + neural reranking for code search. Not semantic search - uses regex matching, then reranks results by relevance.**
+**Semantic code search with automatic indexing. Describe what you're looking for, get relevant code.**
 
 How it works:
-1. **Grep stage**: Regex pattern matching across files (POSIX regex via libc)
-2. **Extract stage**: Tree-sitter parses matched files to extract functions/classes
-3. **Rerank stage**: Cross-encoder scores extracted code by query relevance
-
-No embeddings, no vector DB, no indexing. Just grep → parse → rerank.
+1. **Index**: ModernBERT embeddings for code blocks (auto-builds on first search)
+2. **Search**: Vector similarity via omendb
+3. **Fallback**: `-f` for grep + neural rerank, `-e`/`-r` for exact/regex grep
 
 ## Quick Reference
 
 ```bash
 pixi run build-ext            # Build Mojo scanner extension
-pixi run hhg "query" ./src    # Search
-pixi run hhg "query" . --json # Agent output
+pixi run hhg "query" ./src    # Search (semantic, auto-indexes)
+pixi run hhg -f "query" .     # Fast mode (grep + rerank, no index)
+pixi run hhg -e "pattern" .   # Exact grep (fastest)
+pixi run hhg --json "query" . # JSON output for agents
 pixi run test                 # Run all tests
 ```
 
 ## Architecture
 
 ```
-Query → [Mojo Scanner] → matching files → [Tree-sitter] → code blocks → [ONNX Reranker] → ranked results
+Default (semantic):
+Query → Embed → Vector search (omendb) → Results
+               ↓
+         Auto-indexes on first run (.hhg/)
+         Auto-updates when files change
+
+Fast mode (-f):
+Query → [Mojo Scanner] → matching files → [Tree-sitter] → code blocks → [ONNX Reranker] → Results
               ↓                                 ↓                              ↓
         POSIX regex grep                  Extract functions           Cross-encoder scoring
         (parallel, libc)                  & classes from AST          (batched inference)
 ```
 
-**Performance note**: For literal patterns (no regex metacharacters), the scanner uses `String.find()` with SIMD `_memmem`. For regex patterns, it uses POSIX regex (libc). The literal path avoids regex compilation overhead.
-
-| Stage | Implementation |
-|-------|----------------|
+| Component | Implementation |
+|-----------|----------------|
 | Scanner | `src/scanner/_scanner.mojo` (Python extension) + `c_regex.mojo` |
 | Extraction | `src/hygrep/extractor.py` (Tree-sitter AST) |
-| Reranking | `src/hygrep/reranker.py` (ONNX batched) |
+| Embeddings | `src/hygrep/embedder.py` (ModernBERT ONNX) |
+| Vector DB | `src/hygrep/semantic.py` (omendb wrapper) |
+| Reranking | `src/hygrep/reranker.py` (cross-encoder, for -f mode) |
 
 ## Project Structure
 
@@ -44,9 +51,11 @@ src/
 │   └── c_regex.mojo    # POSIX regex FFI (libc)
 ├── hygrep/
 │   ├── __init__.py     # Package version
-│   ├── cli.py          # Python CLI entry point
+│   ├── cli.py          # CLI entry point (semantic-first)
+│   ├── embedder.py     # ModernBERT ONNX embeddings
+│   ├── semantic.py     # SemanticIndex (omendb wrapper)
 │   ├── extractor.py    # Tree-sitter extraction
-│   └── reranker.py     # ONNX cross-encoder
+│   ├── reranker.py     # Cross-encoder (for -f mode)
 │   └── _scanner.so     # Built extension (gitignored)
 tests/                  # Mojo + Python tests
 pyproject.toml          # Python packaging
@@ -61,7 +70,9 @@ hatch_build.py          # Platform wheel hook
 | Python | >=3.11, <3.14 | CLI + inference |
 | ONNX Runtime | >=1.16 | Model execution |
 | Tree-sitter | >=0.24 | AST parsing (22 languages) |
-| Model | mxbai-rerank-xsmall-v1 | INT8 quantized, ~40MB |
+| omendb | >=0.0.1a1 | Vector database (optional dep) |
+| Embeddings | ModernBERT-embed-base | INT8, 256 dims, ~40MB |
+| Reranker | mxbai-rerank-xsmall-v1 | INT8, ~40MB (for -f mode) |
 
 ## Mojo Patterns
 
@@ -138,7 +149,7 @@ parallelize[worker](num_items)
 |-------|---------|---------------|
 | Build | `pixi run build-ext` | Zero errors |
 | Test | `pixi run test` | All pass |
-| Smoke | `pixi run hygrep "test" ./src` | Returns results |
+| Smoke | `pixi run hhg "test" ./src` | Returns results |
 | Wheel | `uv build --wheel` | Platform-tagged wheel |
 
 ## Release to PyPI
