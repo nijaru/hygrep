@@ -348,14 +348,19 @@ def search(
         err_console.print(f"[dim]Running: hhg status {path}[/]")
         status(path=path)
         raise typer.Exit()
-    elif query == "rebuild":
+    elif query == "build":
         if path_str in ("--help", "-h"):
             console.print(
-                "Usage: hhg rebuild [PATH] [-q]\n\nRebuild index from scratch for PATH (default: current dir)."
+                "Usage: hhg build [PATH] [--force] [-q]\n\nBuild/update index for PATH (default: current dir)."
             )
             raise typer.Exit()
-        err_console.print(f"[dim]Running: hhg rebuild {path}[/]")
-        rebuild(path=path, quiet=quiet)
+        # Handle --force flag
+        force_build = path_str in ("--force", "-f")
+        actual_path = Path(".") if force_build else path
+        err_console.print(
+            f"[dim]Running: hhg build {actual_path}{' --force' if force_build else ''}[/]"
+        )
+        build(path=actual_path, force=force_build, quiet=quiet)
         raise typer.Exit()
     elif query == "clean":
         if path_str in ("--help", "-h"):
@@ -366,6 +371,25 @@ def search(
         err_console.print(f"[dim]Running: hhg clean {path}[/]")
         clean(path=path)
         raise typer.Exit()
+    elif query == "model":
+        # Handle model subcommand
+        if path_str in ("--help", "-h"):
+            console.print(
+                "Usage: hhg model [COMMAND]\n\n"
+                "Commands:\n"
+                "  (none)     Show model status\n"
+                "  install    Download/reinstall models"
+            )
+            raise typer.Exit()
+        elif path_str == "install":
+            err_console.print("[dim]Running: hhg model install[/]")
+            install()
+            raise typer.Exit()
+        else:
+            # Default: show model status
+            err_console.print("[dim]Running: hhg model[/]")
+            model_status(ctx)
+            raise typer.Exit()
 
     if version:
         console.print(f"hhg {__version__}")
@@ -381,9 +405,12 @@ def search(
                 "  hhg -e <pattern> [path]  Exact grep (fastest)\n"
                 "  hhg -r <pattern> [path]  Regex grep\n\n"
                 "[dim]Index commands:[/]\n"
-                "  hhg status [path]        Show index status\n"
-                "  hhg rebuild [path]       Rebuild index\n"
-                "  hhg clean [path]         Delete index",
+                "  hhg status [path]     Show index status\n"
+                "  hhg build [path]      Build/update index\n"
+                "  hhg clean [path]      Delete index\n\n"
+                "[dim]Model commands:[/]\n"
+                "  hhg model             Show model status\n"
+                "  hhg model install     Download/reinstall models",
                 border_style="dim",
             )
         )
@@ -515,6 +542,7 @@ def search(
 @app.command()
 def status(path: Path = typer.Argument(Path("."), help="Directory")):
     """Show index status."""
+    from .scanner import scan
     from .semantic import HAS_OMENDB, SemanticIndex
 
     if not HAS_OMENDB:
@@ -523,24 +551,50 @@ def status(path: Path = typer.Argument(Path("."), help="Directory")):
         raise typer.Exit(EXIT_ERROR)
 
     path = path.resolve()
-    index_path = get_index_path(path)
 
     if not index_exists(path):
-        err_console.print(f"[yellow]No index[/] at {index_path}")
+        console.print("No index found. Run 'hhg build' to create.")
         raise typer.Exit()
 
     index = SemanticIndex(path)
-    count = index.count()
-    console.print(f"[green]✓[/] Index: {count} vectors")
-    console.print(f"  Location: {index_path}")
+    block_count = index.count()
+
+    # Get file count from manifest
+    manifest = index._load_manifest()
+    file_count = len(manifest.get("files", {}))
+
+    # Check for stale files
+    files = scan(str(path), ".", include_hidden=False)
+    changed, deleted = index.get_stale_files(files)
+    stale_count = len(changed) + len(deleted)
+
+    if stale_count == 0:
+        console.print(f"[green]✓[/] {file_count} files, {block_count} blocks (up to date)")
+    else:
+        parts = []
+        if changed:
+            parts.append(f"{len(changed)} changed")
+        if deleted:
+            parts.append(f"{len(deleted)} deleted")
+        stale_str = ", ".join(parts)
+        console.print(f"[yellow]![/] {file_count} files, {block_count} blocks ({stale_str})")
+        console.print("  Run 'hhg build' to update")
 
 
 @app.command()
-def rebuild(
+def build(
     path: Path = typer.Argument(Path("."), help="Directory"),
+    force: bool = typer.Option(False, "--force", "-f", help="Full rebuild (delete and recreate)"),
     quiet: bool = typer.Option(False, "-q", "--quiet", help="Suppress progress"),
 ):
-    """Rebuild index from scratch."""
+    """Build or update index.
+
+    By default, does an incremental update (only changed files).
+    Use --force to delete and rebuild from scratch.
+    """
+    from rich.status import Status
+
+    from .scanner import scan
     from .semantic import HAS_OMENDB, SemanticIndex
 
     if not HAS_OMENDB:
@@ -550,15 +604,45 @@ def rebuild(
 
     path = path.resolve()
 
-    # Clear existing
-    if index_exists(path):
+    if force and index_exists(path):
+        # Full rebuild: clear first
         index = SemanticIndex(path)
         index.clear()
         if not quiet:
             err_console.print("[dim]Cleared existing index[/]")
+        build_index(path, quiet=quiet)
+    elif index_exists(path):
+        # Incremental update
+        if not quiet:
+            with Status("Scanning files...", console=err_console):
+                files = scan(str(path), ".", include_hidden=False)
+        else:
+            files = scan(str(path), ".", include_hidden=False)
 
-    # Build fresh
-    build_index(path, quiet=quiet)
+        index = SemanticIndex(path)
+        changed, deleted = index.get_stale_files(files)
+        stale_count = len(changed) + len(deleted)
+
+        if stale_count == 0:
+            if not quiet:
+                console.print("[green]✓[/] Index up to date")
+            return
+
+        if not quiet:
+            err_console.print(f"[dim]Updating {stale_count} files...[/]")
+
+        stats = index.update(files)
+
+        if not quiet:
+            console.print(
+                f"[green]✓[/] Updated {stats.get('blocks', 0)} blocks "
+                f"from {stats.get('files', 0)} files"
+            )
+            if stats.get("deleted", 0):
+                console.print(f"  [dim]Removed {stats['deleted']} stale blocks[/]")
+    else:
+        # No index exists, build fresh
+        build_index(path, quiet=quiet)
 
 
 @app.command()
@@ -580,6 +664,104 @@ def clean(path: Path = typer.Argument(Path("."), help="Directory")):
     index = SemanticIndex(path)
     index.clear()
     console.print("[green]✓[/] Index deleted")
+
+
+# Model command group
+model_app = typer.Typer(
+    name="model",
+    help="Manage models",
+    no_args_is_help=False,
+    invoke_without_command=True,
+)
+app.add_typer(model_app, name="model")
+
+
+def _get_model_status() -> list[dict]:
+    """Get status of all models."""
+    from huggingface_hub import try_to_load_from_cache
+
+    from .embedder import MODEL_FILE as EMBED_FILE
+    from .embedder import MODEL_REPO as EMBED_REPO
+    from .embedder import TOKENIZER_FILE as EMBED_TOKENIZER
+    from .reranker import MODEL_FILE as RERANK_FILE
+    from .reranker import MODEL_REPO as RERANK_REPO
+    from .reranker import TOKENIZER_FILE as RERANK_TOKENIZER
+
+    models = []
+
+    # Check embedder
+    embed_model = try_to_load_from_cache(EMBED_REPO, EMBED_FILE)
+    embed_tokenizer = try_to_load_from_cache(EMBED_REPO, EMBED_TOKENIZER)
+    embed_installed = embed_model is not None and embed_tokenizer is not None
+    models.append(
+        {
+            "name": "embedder",
+            "repo": EMBED_REPO,
+            "installed": embed_installed,
+        }
+    )
+
+    # Check reranker
+    rerank_model = try_to_load_from_cache(RERANK_REPO, RERANK_FILE)
+    rerank_tokenizer = try_to_load_from_cache(RERANK_REPO, RERANK_TOKENIZER)
+    rerank_installed = rerank_model is not None and rerank_tokenizer is not None
+    models.append(
+        {
+            "name": "reranker",
+            "repo": RERANK_REPO,
+            "installed": rerank_installed,
+        }
+    )
+
+    return models
+
+
+@model_app.callback(invoke_without_command=True)
+def model_status(ctx: typer.Context):
+    """Show model status."""
+    if ctx.invoked_subcommand is not None:
+        return
+
+    models = _get_model_status()
+
+    all_installed = all(m["installed"] for m in models)
+
+    if all_installed:
+        console.print("[green]✓[/] All models installed")
+    else:
+        console.print("[yellow]![/] Some models missing")
+
+    for m in models:
+        status = "[green]✓[/]" if m["installed"] else "[red]✗[/]"
+        console.print(f"  {status} {m['name']}: {m['repo']}")
+
+    if not all_installed:
+        console.print("\nRun 'hhg model install' to download missing models")
+
+
+@model_app.command()
+def install():
+    """Download or reinstall models."""
+    from huggingface_hub import hf_hub_download
+
+    from .embedder import MODEL_FILE as EMBED_FILE
+    from .embedder import MODEL_REPO as EMBED_REPO
+    from .embedder import TOKENIZER_FILE as EMBED_TOKENIZER
+    from .reranker import MODEL_FILE as RERANK_FILE
+    from .reranker import MODEL_REPO as RERANK_REPO
+    from .reranker import TOKENIZER_FILE as RERANK_TOKENIZER
+
+    models = [
+        ("embedder", EMBED_REPO, [EMBED_FILE, EMBED_TOKENIZER]),
+        ("reranker", RERANK_REPO, [RERANK_FILE, RERANK_TOKENIZER]),
+    ]
+
+    for name, repo, files in models:
+        console.print(f"[dim]Downloading {name} ({repo})...[/]")
+        for filename in files:
+            hf_hub_download(repo_id=repo, filename=filename, force_download=True)
+
+    console.print("[green]✓[/] All models installed")
 
 
 def main():
