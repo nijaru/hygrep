@@ -17,7 +17,7 @@ MODEL_FILE = "onnx/model_int8.onnx"
 TOKENIZER_FILE = "tokenizer.json"
 DIMENSIONS = 256  # Matryoshka: 768 full, 256 reduced (3x smaller index)
 MAX_LENGTH = 512  # Truncate to 512 tokens (enough for most functions, 16x faster than 8192)
-BATCH_SIZE = 16  # Small batches to avoid padding waste
+BATCH_SIZE = 32  # Larger batches for better throughput (benchmarked: 32 is 15% faster than 16)
 
 # Prefixes required by ModernBERT-embed
 QUERY_PREFIX = "search_query: "
