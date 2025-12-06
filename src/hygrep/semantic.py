@@ -509,8 +509,8 @@ class SemanticIndex:
         subdir_vectors_path = str(subdir_index_path / VECTORS_DIR)
         try:
             subdir_db = omendb.open(subdir_vectors_path, dimensions=DIMENSIONS)
-        except Exception:
-            return {"merged": 0, "error": "cannot open subdir db"}
+        except Exception as e:
+            return {"merged": 0, "error": f"cannot open subdir db: {e}"}
 
         stats = {"merged": 0, "files": 0, "skipped": 0}
 
@@ -529,6 +529,7 @@ class SemanticIndex:
 
             block_ids = file_info.get("blocks", [])
             new_block_ids = []
+            items_to_insert = []
 
             for block_id in block_ids:
                 # Get vector from subdir db
@@ -542,19 +543,19 @@ class SemanticIndex:
                 if "file" in metadata:
                     metadata["file"] = f"{prefix}/{metadata['file']}"
 
-                # Insert into parent db
-                db.set(
-                    [
-                        {
-                            "id": new_id,
-                            "vector": item["embedding"],
-                            "metadata": metadata,
-                        }
-                    ]
+                items_to_insert.append(
+                    {
+                        "id": new_id,
+                        "vector": item["embedding"],
+                        "metadata": metadata,
+                    }
                 )
-
                 new_block_ids.append(new_id)
-                stats["merged"] += 1
+
+            # Batch insert all blocks for this file
+            if items_to_insert:
+                db.set(items_to_insert)
+                stats["merged"] += len(items_to_insert)
 
             # Update parent manifest
             if new_block_ids:

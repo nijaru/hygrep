@@ -658,29 +658,21 @@ def build(
         if stale_count == 0:
             if not quiet:
                 console.print("[green]✓[/] Index up to date")
-            # Still clean up subdir indexes if any
-            if subdir_indexes:
-                for idx in subdir_indexes:
-                    shutil.rmtree(idx)
-                    if not quiet:
-                        err_console.print(
-                            f"[dim]Removed superseded index: {idx.parent.relative_to(path)}[/]"
-                        )
-            return
-
-        if not quiet:
-            with Status(f"Updating {stale_count} files...", console=err_console):
-                stats = index.update(files)
+            # Fall through to clean up subdir indexes if any
         else:
-            stats = index.update(files)
+            if not quiet:
+                with Status(f"Updating {stale_count} files...", console=err_console):
+                    stats = index.update(files)
+            else:
+                stats = index.update(files)
 
-        if not quiet:
-            console.print(
-                f"[green]✓[/] Updated {stats.get('blocks', 0)} blocks "
-                f"from {stats.get('files', 0)} files"
-            )
-            if stats.get("deleted", 0):
-                console.print(f"  [dim]Removed {stats['deleted']} stale blocks[/]")
+            if not quiet:
+                console.print(
+                    f"[green]✓[/] Updated {stats.get('blocks', 0)} blocks "
+                    f"from {stats.get('files', 0)} files"
+                )
+                if stats.get("deleted", 0):
+                    console.print(f"  [dim]Removed {stats['deleted']} stale blocks[/]")
     else:
         # No index exists, build fresh
         # First, merge any subdir indexes (much faster than re-embedding)
@@ -703,11 +695,11 @@ def build(
 
         # If we merged, clean up any deleted files from merged manifests
         if merged_any:
+            # Reopen index to get fresh state after build
             index = SemanticIndex(path)
             files = scan(str(path), ".", include_hidden=False)
-            changed, deleted = index.get_stale_files(files)
+            _changed, deleted = index.get_stale_files(files)
             if deleted:
-                # Remove orphaned entries from deleted files
                 index.update(files)
                 if not quiet:
                     err_console.print(f"[dim]  Cleaned up {len(deleted)} deleted file entries[/]")
