@@ -6,7 +6,7 @@ import os
 from collections.abc import Callable
 from pathlib import Path
 
-from .embedder import DIMENSIONS, Embedder
+from .embedder import DIMENSIONS, get_embedder
 from .extractor import ContextExtractor
 
 # Try to import omendb
@@ -143,7 +143,8 @@ class SemanticIndex:
                 except ValueError:
                     pass  # search_scope not under root, ignore
 
-        self.embedder = Embedder(cache_dir=cache_dir)
+        # Use global embedder for caching benefits
+        self.embedder = get_embedder(cache_dir=cache_dir)
         self.extractor = ContextExtractor()
 
         self._db: "omendb.Database | None" = None

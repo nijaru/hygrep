@@ -1,6 +1,7 @@
 """Embedder - ONNX text embeddings for semantic search."""
 
 import os
+import threading
 
 import numpy as np
 import onnxruntime as ort
@@ -24,6 +25,36 @@ QUERY_PREFIX = "search_query: "
 DOCUMENT_PREFIX = "search_document: "
 
 
+# Global embedder instance for caching and pre-warming
+_global_embedder: "Embedder | None" = None
+_global_lock = threading.Lock()
+
+
+def get_embedder(cache_dir: str | None = None) -> "Embedder":
+    """Get or create the global embedder instance.
+
+    Using a global instance enables query embedding caching across calls.
+    """
+    global _global_embedder
+    with _global_lock:
+        if _global_embedder is None:
+            _global_embedder = Embedder(cache_dir=cache_dir)
+        return _global_embedder
+
+
+def prewarm() -> None:
+    """Pre-warm the embedder model in a background thread.
+
+    Call this early (e.g., on import) to avoid cold start latency on first query.
+    """
+
+    def _load():
+        get_embedder()._ensure_loaded()
+
+    thread = threading.Thread(target=_load, daemon=True)
+    thread.start()
+
+
 class Embedder:
     """Generate text embeddings using ONNX model."""
 
@@ -31,6 +62,7 @@ class Embedder:
         self.cache_dir = cache_dir
         self._session: ort.InferenceSession | None = None
         self._tokenizer: Tokenizer | None = None
+        self._query_cache: dict[str, np.ndarray] = {}  # LRU cache for query embeddings
 
     def _ensure_loaded(self) -> None:
         """Lazy load model and tokenizer."""
@@ -134,8 +166,31 @@ class Embedder:
 
         return np.vstack(all_embeddings)
 
-    def embed_one(self, text: str) -> np.ndarray:
-        """Embed a single query string (for search)."""
+    def embed_one(self, text: str, use_cache: bool = True) -> np.ndarray:
+        """Embed a single query string (for search).
+
+        Args:
+            text: Query text to embed.
+            use_cache: Whether to use LRU cache for repeated queries (default True).
+
+        Returns:
+            Normalized embedding vector of shape (DIMENSIONS,).
+        """
+        # Check cache first
+        if use_cache and text in self._query_cache:
+            return self._query_cache[text]
+
         # Add query prefix for ModernBERT
         prefixed = QUERY_PREFIX + text
-        return self._embed_batch([prefixed])[0]
+        embedding = self._embed_batch([prefixed])[0]
+
+        # Cache result (limit cache size to avoid memory bloat)
+        if use_cache:
+            if len(self._query_cache) >= 128:
+                # Simple eviction: clear oldest half
+                keys = list(self._query_cache.keys())[: len(self._query_cache) // 2]
+                for k in keys:
+                    del self._query_cache[k]
+            self._query_cache[text] = embedding
+
+        return embedding
