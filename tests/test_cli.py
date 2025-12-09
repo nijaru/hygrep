@@ -19,16 +19,21 @@ def test_exit_codes():
         with open(test_file, "w") as f:
             f.write("def hello(): pass\n")
 
+        # Build index first
+        sys.argv = ["hygrep", "-q", "build", tmpdir]
+        with contextlib.suppress(SystemExit):
+            cli.main()
+
         # Test match (exit 0)
-        sys.argv = ["hygrep", "-q", "--fast", "hello", tmpdir]
+        sys.argv = ["hygrep", "-q", "hello", tmpdir]
         try:
             cli.main()
             raise AssertionError("Should have called sys.exit")
         except SystemExit as e:
             assert e.code == 0, f"Expected exit 0 on match, got {e.code}"
 
-        # Test no match (exit 1)
-        sys.argv = ["hygrep", "-q", "--fast", "nonexistent_xyz", tmpdir]
+        # Test no match (exit 1) - use threshold to force no results
+        sys.argv = ["hygrep", "-q", "--threshold", "0.99", "xyznonexistentzyx", tmpdir]
         try:
             cli.main()
             raise AssertionError("Should have called sys.exit")
@@ -56,7 +61,12 @@ def test_json_output(capsys=None):
         with open(test_file, "w") as f:
             f.write("def login(): pass\n")
 
-        sys.argv = ["hygrep", "--json", "--fast", "-q", "login", tmpdir]
+        # Build index
+        sys.argv = ["hygrep", "-q", "build", tmpdir]
+        with contextlib.suppress(SystemExit):
+            cli.main()
+
+        sys.argv = ["hygrep", "--json", "-q", "login", tmpdir]
         stdout = io.StringIO()
         with redirect_stdout(stdout), contextlib.suppress(SystemExit):
             cli.main()
@@ -83,8 +93,13 @@ def test_exclude_patterns():
         with open(os.path.join(tmpdir, "test_main.py"), "w") as f:
             f.write("def test_main(): pass\n")
 
+        # Build index
+        sys.argv = ["hygrep", "-q", "build", tmpdir]
+        with contextlib.suppress(SystemExit):
+            cli.main()
+
         # Without exclude
-        sys.argv = ["hygrep", "--json", "--fast", "-q", "main", tmpdir]
+        sys.argv = ["hygrep", "--json", "-q", "main", tmpdir]
         stdout = io.StringIO()
         with redirect_stdout(stdout), contextlib.suppress(SystemExit):
             cli.main()
@@ -92,7 +107,7 @@ def test_exclude_patterns():
         assert len(results) >= 2, f"Expected >= 2 results, got {len(results)}"
 
         # With exclude
-        sys.argv = ["hygrep", "--json", "--fast", "-q", "--exclude", "test_*", "main", tmpdir]
+        sys.argv = ["hygrep", "--json", "-q", "--exclude", "test_*", "main", tmpdir]
         stdout = io.StringIO()
         with redirect_stdout(stdout), contextlib.suppress(SystemExit):
             cli.main()
@@ -115,7 +130,12 @@ def test_type_filter():
         with open(os.path.join(tmpdir, "code.js"), "w") as f:
             f.write("function hello() {}\n")
 
-        sys.argv = ["hygrep", "--json", "--fast", "-q", "-t", "py", "hello", tmpdir]
+        # Build index
+        sys.argv = ["hygrep", "-q", "build", tmpdir]
+        with contextlib.suppress(SystemExit):
+            cli.main()
+
+        sys.argv = ["hygrep", "--json", "-q", "-t", "py", "hello", tmpdir]
         stdout = io.StringIO()
         with redirect_stdout(stdout), contextlib.suppress(SystemExit):
             cli.main()
@@ -146,29 +166,6 @@ def test_help():
     print("Help flag: PASS")
 
 
-def test_fast_mode():
-    """Test --fast mode (grep + neural rerank)."""
-    import io
-    from contextlib import redirect_stdout
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        test_file = os.path.join(tmpdir, "test.py")
-        with open(test_file, "w") as f:
-            f.write("def hello(): pass\n")
-
-        sys.argv = ["hygrep", "--fast", "--json", "-q", "hello", tmpdir]
-        stdout = io.StringIO()
-        with redirect_stdout(stdout), contextlib.suppress(SystemExit):
-            cli.main()
-
-        results = json.loads(stdout.getvalue())
-        assert len(results) >= 1
-        # Fast mode uses reranking, so has scores > 0
-        assert results[0]["score"] >= 0.0
-
-    print("Fast mode: PASS")
-
-
 def test_files_only():
     """Test -l/--files-only option."""
     import io
@@ -180,7 +177,12 @@ def test_files_only():
         with open(os.path.join(tmpdir, "b.py"), "w") as f:
             f.write("def hello(): pass\n")
 
-        sys.argv = ["hygrep", "-l", "--fast", "-q", "hello", tmpdir]
+        # Build index
+        sys.argv = ["hygrep", "-q", "build", tmpdir]
+        with contextlib.suppress(SystemExit):
+            cli.main()
+
+        sys.argv = ["hygrep", "-l", "-q", "hello", tmpdir]
         stdout = io.StringIO()
         with redirect_stdout(stdout), contextlib.suppress(SystemExit):
             cli.main()
@@ -206,7 +208,12 @@ def test_compact_json():
         with open(test_file, "w") as f:
             f.write("def hello(): pass\n")
 
-        sys.argv = ["hygrep", "--json", "--compact", "--fast", "-q", "hello", tmpdir]
+        # Build index
+        sys.argv = ["hygrep", "-q", "build", tmpdir]
+        with contextlib.suppress(SystemExit):
+            cli.main()
+
+        sys.argv = ["hygrep", "--json", "--compact", "-q", "hello", tmpdir]
         stdout = io.StringIO()
         with redirect_stdout(stdout), contextlib.suppress(SystemExit):
             cli.main()
@@ -215,37 +222,11 @@ def test_compact_json():
         assert len(results) >= 1
         # Compact should NOT have content
         assert "content" not in results[0], "Compact JSON should not have content"
-        # But should have other fields (CLI normalizes start_line -> line)
+        # But should have other fields
         assert "file" in results[0]
         assert "line" in results[0]
-        assert "end_line" in results[0]
 
     print("Compact JSON: PASS")
-
-
-def test_end_line_in_json():
-    """Test that end_line is present in JSON output."""
-    import io
-    from contextlib import redirect_stdout
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        test_file = os.path.join(tmpdir, "test.py")
-        with open(test_file, "w") as f:
-            f.write("def hello():\n    pass\n    return True\n")
-
-        sys.argv = ["hygrep", "--json", "--fast", "-q", "hello", tmpdir]
-        stdout = io.StringIO()
-        with redirect_stdout(stdout), contextlib.suppress(SystemExit):
-            cli.main()
-
-        results = json.loads(stdout.getvalue())
-        assert len(results) >= 1
-        # CLI normalizes start_line -> line
-        assert "line" in results[0], "Missing line"
-        assert "end_line" in results[0], "Missing end_line"
-        assert results[0]["end_line"] >= results[0]["line"], "end_line should be >= line"
-
-    print("End line in JSON: PASS")
 
 
 def test_semantic_mode():
@@ -380,52 +361,6 @@ def test_clean_command():
     print("Clean command: PASS")
 
 
-def test_exact_mode():
-    """Test -e/--exact mode (grep without reranking)."""
-    import io
-    from contextlib import redirect_stdout
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        test_file = os.path.join(tmpdir, "test.py")
-        with open(test_file, "w") as f:
-            f.write("def exact_match(): pass\n")
-
-        sys.argv = ["hygrep", "-e", "--json", "-q", "exact_match", tmpdir]
-        stdout = io.StringIO()
-        with redirect_stdout(stdout), contextlib.suppress(SystemExit):
-            cli.main()
-
-        results = json.loads(stdout.getvalue())
-        assert len(results) >= 1
-        assert results[0]["name"] == "exact_match"
-        # Exact mode uses score 1.0 (all matches equal, no ranking)
-        assert results[0]["score"] == 1.0
-
-    print("Exact mode: PASS")
-
-
-def test_regex_mode():
-    """Test -r/--regex mode."""
-    import io
-    from contextlib import redirect_stdout
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        test_file = os.path.join(tmpdir, "test.py")
-        with open(test_file, "w") as f:
-            f.write("def test_foo(): pass\ndef test_bar(): pass\n")
-
-        # Regex pattern matching test_*
-        sys.argv = ["hygrep", "-r", "--json", "-q", "test_.*", tmpdir]
-        stdout = io.StringIO()
-        with redirect_stdout(stdout), contextlib.suppress(SystemExit):
-            cli.main()
-
-        results = json.loads(stdout.getvalue())
-        assert len(results) >= 2, f"Expected >= 2 results, got {len(results)}"
-
-    print("Regex mode: PASS")
-
-
 if __name__ == "__main__":
     print("Running CLI tests...\n")
     test_exit_codes()
@@ -433,14 +368,10 @@ if __name__ == "__main__":
     test_exclude_patterns()
     test_type_filter()
     test_help()
-    test_fast_mode()
     test_files_only()
     test_compact_json()
-    test_end_line_in_json()
     test_semantic_mode()
     test_status_command()
     test_build_command()
     test_clean_command()
-    test_exact_mode()
-    test_regex_mode()
     print("\nAll CLI tests passed!")

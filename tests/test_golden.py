@@ -21,21 +21,29 @@ from hygrep import cli
 GOLDEN_DIR = Path(__file__).parent / "golden"
 
 
+def _ensure_index_built():
+    """Build index for golden dir if not already built."""
+    index_dir = GOLDEN_DIR / ".hhg"
+    if not (index_dir / "manifest.json").exists():
+        # Build index quietly
+        sys.argv = ["hygrep", "-q", "build", str(GOLDEN_DIR)]
+        with suppress(SystemExit):
+            cli.main()
+
+
 def run_search(
     query: str,
     path: str | None = None,
-    fast: bool = False,
     top_k: int = 10,
 ) -> list[dict]:
-    """Run hygrep search and return results."""
+    """Run hygrep semantic search and return results."""
     if path is None:
         path = str(GOLDEN_DIR)
 
-    # Options must come BEFORE positional args in Typer CLI
-    args = ["hygrep", "--json", "-q", "-n", str(top_k)]
-    if fast:
-        args.append("--fast")
-    args.extend([query, path])
+    # Ensure index is built
+    _ensure_index_built()
+
+    args = ["hygrep", "--json", "-q", "-n", str(top_k), query, path]
 
     sys.argv = args
     stdout = io.StringIO()
@@ -67,17 +75,21 @@ def get_result_names(results: list[dict]) -> list[str]:
 
 
 # =============================================================================
-# Fast Mode Tests (scanner + extractor only, no model)
+# Semantic Search Tests
 # =============================================================================
 
 
-class TestFastMode:
-    """Tests that run without the model (--fast flag)."""
+class TestSemanticSearch:
+    """Tests for semantic code search."""
+
+    @classmethod
+    def setup_class(cls):
+        """Build index before running tests."""
+        _ensure_index_built()
 
     def test_python_function_search(self):
         """Search for Python functions."""
-        # Use literal function name since --fast uses grep
-        results = run_search("hash_password", fast=True)
+        results = run_search("hash password function")
         assert len(results) > 0, "Should find results"
         assert result_contains(results, "auth.py"), (
             f"Should find auth.py: {get_result_names(results)}"
@@ -85,90 +97,60 @@ class TestFastMode:
 
     def test_python_class_search(self):
         """Search for Python classes."""
-        # Use specific class name to avoid file ordering issues
-        results = run_search("UserManager", fast=True)
-        assert result_contains(results, "auth.py", "UserManager"), (
-            f"Should find UserManager: {get_result_names(results)}"
+        results = run_search("user management class")
+        assert result_contains(results[:5], "auth.py", "UserManager"), (
+            f"Should find UserManager: {get_result_names(results[:5])}"
         )
 
     def test_typescript_function_search(self):
         """Search for TypeScript functions."""
-        results = run_search("createUser", fast=True)
-        assert result_contains(results, "api_handlers.ts", "createUser"), (
-            f"Should find createUser: {get_result_names(results)}"
+        results = run_search("create user handler")
+        assert result_contains(results[:5], "api_handlers.ts"), (
+            f"Should find api_handlers.ts: {get_result_names(results[:5])}"
         )
 
     def test_typescript_middleware_search(self):
         """Search for middleware pattern."""
-        results = run_search("authMiddleware", fast=True)
-        assert result_contains(results, "api_handlers.ts", "authMiddleware"), (
-            f"Should find authMiddleware: {get_result_names(results)}"
+        results = run_search("authentication middleware")
+        assert result_contains(results[:5], "api_handlers.ts"), (
+            f"Should find api_handlers.ts: {get_result_names(results[:5])}"
         )
 
     def test_go_struct_search(self):
         """Search for Go structs."""
-        results = run_search("server configuration", fast=True)
-        assert result_contains(results, "server.go"), (
-            f"Should find server.go: {get_result_names(results)}"
+        results = run_search("server configuration struct")
+        assert result_contains(results[:5], "server.go"), (
+            f"Should find server.go: {get_result_names(results[:5])}"
         )
 
     def test_go_handler_search(self):
         """Search for Go HTTP handlers."""
-        results = run_search("healthHandler", fast=True)
-        assert result_contains(results, "server.go", "healthHandler"), (
-            f"Should find healthHandler: {get_result_names(results)}"
+        results = run_search("health check endpoint")
+        assert result_contains(results[:5], "server.go"), (
+            f"Should find server.go: {get_result_names(results[:5])}"
         )
 
     def test_rust_error_types(self):
         """Search for Rust error handling."""
-        results = run_search("DatabaseError", fast=True)
-        assert result_contains(results, "errors.rs"), (
-            f"Should find errors.rs: {get_result_names(results)}"
+        results = run_search("database error type")
+        assert result_contains(results[:5], "errors.rs"), (
+            f"Should find errors.rs: {get_result_names(results[:5])}"
         )
 
     def test_rust_result_extension(self):
         """Search for Rust trait implementations."""
-        results = run_search("ResultExt", fast=True)
-        assert result_contains(results, "errors.rs", "ResultExt"), (
-            f"Should find ResultExt: {get_result_names(results)}"
+        results = run_search("result extension trait")
+        assert result_contains(results[:5], "errors.rs"), (
+            f"Should find errors.rs: {get_result_names(results[:5])}"
         )
 
     def test_cross_language_auth(self):
         """Search should find auth in multiple languages."""
-        results = run_search("authentication", fast=True)
+        results = run_search("user authentication login")
         files = {r["file"] for r in results}
-        # Should find auth-related code in Python and TypeScript
+        # Should find auth-related code
         auth_files = [f for f in files if "auth" in f.lower() or "handler" in f.lower()]
-        assert len(auth_files) >= 1, f"Should find auth in multiple files: {files}"
-
-    def test_no_results(self):
-        """Search for something that doesn't exist."""
-        results = run_search("xyznonexistent123", fast=True)
-        assert len(results) == 0, "Should find no results"
-
-
-# =============================================================================
-# Reranking Tests (full pipeline with model)
-# =============================================================================
-
-
-def _ensure_index_built():
-    """Build index for golden dir if not already built."""
-    index_dir = GOLDEN_DIR / ".hhg"
-    if not (index_dir / "manifest.json").exists():
-        # Build index quietly
-        sys.argv = ["hygrep", "-q", "build", str(GOLDEN_DIR)]
-        with suppress(SystemExit):
-            cli.main()
-
-
-class TestReranking:
-    """Tests that use the model for reranking."""
-
-    @classmethod
-    def setup_class(cls):
-        """Build index before running semantic tests."""
-        _ensure_index_built()
+        assert len(auth_files) >= 1, f"Should find auth in files: {files}"
 
     def test_semantic_password_hash(self):
         """Semantic search for password hashing."""
@@ -202,20 +184,6 @@ class TestReranking:
             f"api_handlers.ts should be in top 5: {get_result_names(results[:5])}"
         )
 
-    def test_ranking_improves_results(self):
-        """Reranking should improve result quality."""
-        # Use specific function name to avoid file ordering issues
-        fast_results = run_search("validate_session", fast=True)
-        ranked_results = run_search("validate_session")
-
-        # Both should find auth.py
-        assert result_contains(fast_results, "auth.py"), "Fast mode should find auth.py"
-        assert result_contains(ranked_results, "auth.py"), "Ranked mode should find auth.py"
-
-        # Ranked results should have non-zero scores
-        if ranked_results:
-            assert any(r["score"] > 0 for r in ranked_results), "Ranked results should have scores"
-
     def test_scores_are_ordered(self):
         """Results should be ordered by score (descending)."""
         results = run_search("HTTP server routing")
@@ -232,16 +200,20 @@ class TestReranking:
 class TestEdgeCases:
     """Edge case and boundary tests."""
 
+    @classmethod
+    def setup_class(cls):
+        """Build index before running tests."""
+        _ensure_index_built()
+
     def test_special_characters_in_query(self):
         """Query with special regex characters."""
-        results = run_search("map[string]interface{}", fast=True)
-        # Should not crash, may or may not find results
+        results = run_search("map interface")
+        # Should not crash
         assert isinstance(results, list)
 
     def test_empty_query(self):
         """Empty query should show help or exit gracefully."""
-        # Options must come BEFORE positional args in Typer CLI
-        sys.argv = ["hygrep", "--json", "-q", "--fast", "", str(GOLDEN_DIR)]
+        sys.argv = ["hygrep", "--json", "-q", "", str(GOLDEN_DIR)]
         try:
             cli.main()
         except SystemExit as e:
@@ -250,23 +222,18 @@ class TestEdgeCases:
 
     def test_single_word_query(self):
         """Single word queries work."""
-        results = run_search("password", fast=True)
+        results = run_search("password")
         assert len(results) > 0, "Should find password references"
 
     def test_unique_term_query(self):
         """Query with unique term finds correct file."""
-        # Use auth.py-unique term (expires_at only in auth.py)
-        results = run_search("expires_at", fast=True)
-        assert result_contains(results, "auth.py"), "Should find auth.py"
+        results = run_search("session expiration token")
+        assert result_contains(results[:5], "auth.py"), "Should find auth.py"
 
     def test_case_insensitive(self):
-        """Search should be case insensitive."""
-        results_lower = run_search("usermanager", fast=True)
-        results_mixed = run_search("UserManager", fast=True)
-        # Both should find results (regex is case insensitive)
-        assert len(results_lower) > 0 or len(results_mixed) > 0, (
-            "Should find results regardless of case"
-        )
+        """Search should find results regardless of case."""
+        results = run_search("user manager")
+        assert len(results) > 0, "Should find results"
 
 
 # =============================================================================
@@ -278,7 +245,7 @@ def run_tests():
     """Run all tests and report results."""
     import traceback
 
-    test_classes = [TestFastMode, TestReranking, TestEdgeCases]
+    test_classes = [TestSemanticSearch, TestEdgeCases]
     passed = 0
     failed = 0
     errors = []

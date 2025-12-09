@@ -1,6 +1,7 @@
 """hhg - Semantic code search.
 
-If you want grep, use rg. If you want semantic understanding, use hhg.
+Hybrid search combining BM25 (keywords) and semantic similarity (embeddings).
+For grep, use ripgrep. For semantic understanding, use hhg.
 """
 
 import json
@@ -132,68 +133,6 @@ def semantic_search(
     return results
 
 
-def grep_search(pattern: str, root: Path) -> list[dict]:
-    """Fast grep search (escape hatch).
-
-    Note: Scanner uses POSIX regex, so both exact and regex modes
-    work the same at this level. The distinction is for user clarity.
-    """
-    from .extractor import ContextExtractor
-    from .scanner import scan
-
-    # Scan for matches
-    files = scan(str(root), pattern, include_hidden=False)
-
-    # Extract context from matches
-    extractor = ContextExtractor()
-    results = []
-
-    for file_path, content in files.items():
-        blocks = extractor.extract(file_path, pattern, content)
-        for block in blocks:
-            results.append(
-                {
-                    "file": file_path,
-                    "type": block["type"],
-                    "name": block["name"],
-                    "line": block["start_line"],
-                    "end_line": block["end_line"],
-                    "content": block["content"],
-                    "score": 1.0,  # No ranking for grep
-                }
-            )
-
-    return results
-
-
-def fast_search(
-    query: str,
-    root: Path,
-    n: int = 10,
-    max_candidates: int = 100,
-) -> list[dict]:
-    """Grep + neural rerank (no index required)."""
-    from .reranker import Reranker
-    from .scanner import scan
-
-    # Scan for matches
-    files = scan(str(root), query, include_hidden=False)
-
-    if not files:
-        return []
-
-    # Rerank with neural model
-    reranker = Reranker()
-    results = reranker.search(query, files, top_k=n, max_candidates=max_candidates)
-
-    # Normalize output format (start_line -> line)
-    for r in results:
-        if "start_line" in r:
-            r["line"] = r.pop("start_line")
-
-    return results
-
-
 def filter_results(
     results: list[dict],
     file_types: str | None = None,
@@ -320,10 +259,6 @@ def search(
     # Filtering
     file_types: str = typer.Option(None, "-t", "--type", help="Filter types (py,js,ts)"),
     exclude: list[str] = typer.Option(None, "--exclude", help="Exclude glob pattern"),
-    # Modes
-    fast: bool = typer.Option(False, "-f", "--fast", help="Grep + rerank (no index)"),
-    exact: bool = typer.Option(False, "-e", "--exact", help="Exact grep (no rerank)"),
-    regex: bool = typer.Option(False, "-r", "--regex", help="Regex grep (no rerank)"),
     # Index control
     no_index: bool = typer.Option(False, "--no-index", help="Skip auto-index (fail if missing)"),
     # Meta
@@ -332,10 +267,9 @@ def search(
     """Semantic code search.
 
     Examples:
-        hhg "authentication flow" ./src    # Semantic search (best quality)
-        hhg -f "auth" ./src                # Grep + rerank (no index)
-        hhg -e "TODO" ./src                # Exact grep (fastest)
-        hhg -r "TODO.*fix" ./src           # Regex grep
+        hhg "authentication flow" ./src    # Semantic search
+        hhg "error handling" -t py         # Filter by file type
+        hhg build ./src                    # Build index first
     """
     if ctx.invoked_subcommand is not None:
         return
@@ -404,18 +338,16 @@ def search(
         console.print(
             Panel(
                 "[bold]hhg[/] - Semantic code search\n\n"
-                "[dim]Search modes:[/]\n"
-                "  hhg <query> [path]       Semantic search (auto-indexes)\n"
-                "  hhg -f <query> [path]    Grep + neural rerank (no index)\n"
-                "  hhg -e <pattern> [path]  Exact grep (fastest)\n"
-                "  hhg -r <pattern> [path]  Regex grep\n\n"
-                "[dim]Index commands:[/]\n"
-                "  hhg status [path]     Show index status\n"
+                "[dim]Usage:[/]\n"
+                "  hhg <query> [path]    Search for code semantically\n"
                 "  hhg build [path]      Build/update index\n"
+                "  hhg status [path]     Show index status\n"
                 "  hhg clean [path]      Delete index\n\n"
-                "[dim]Model commands:[/]\n"
-                "  hhg model             Show model status\n"
-                "  hhg model install     Download/reinstall models",
+                "[dim]Options:[/]\n"
+                "  -n N                  Number of results (default: 10)\n"
+                "  -t TYPE               Filter by file type (py,js,ts)\n"
+                "  --json                JSON output\n\n"
+                "[dim]For grep, use ripgrep (rg).[/]",
                 border_style="dim",
             )
         )
@@ -427,70 +359,13 @@ def search(
         err_console.print(f"[red]Error:[/] Path does not exist: {path}")
         raise typer.Exit(EXIT_ERROR)
 
-    # Escape hatches: grep mode
-    if exact or regex:
-        mode = "regex" if regex else "exact"
-        if not quiet:
-            with Status(f"Searching ({mode})...", console=err_console):
-                t0 = time.perf_counter()
-                results = grep_search(query, path)
-                search_time = time.perf_counter() - t0
-        else:
-            t0 = time.perf_counter()
-            results = grep_search(query, path)
-            search_time = time.perf_counter() - t0
-
-        if not results:
-            if not json_output:
-                err_console.print("[dim]No matches found[/]")
-            raise typer.Exit(EXIT_NO_MATCH)
-
-        results = results[:n]
-        results = filter_results(results, file_types, exclude)
-        print_results(results, json_output, files_only, compact, root=path)
-
-        if not quiet and not json_output and not files_only:
-            err_console.print(f"[dim]{len(results)} results ({search_time:.2f}s)[/]")
-
-        raise typer.Exit(EXIT_MATCH if results else EXIT_NO_MATCH)
-
-    # Fast mode: grep + rerank (no index)
-    if fast:
-        if not quiet:
-            with Status("Searching (grep + rerank)...", console=err_console):
-                t0 = time.perf_counter()
-                results = fast_search(query, path, n=n)
-                search_time = time.perf_counter() - t0
-        else:
-            t0 = time.perf_counter()
-            results = fast_search(query, path, n=n)
-            search_time = time.perf_counter() - t0
-
-        if not results:
-            if not json_output:
-                err_console.print("[dim]No matches found[/]")
-            raise typer.Exit(EXIT_NO_MATCH)
-
-        # Filter by threshold
-        if threshold != 0.0:
-            results = [r for r in results if r.get("score", 0) >= threshold]
-
-        results = filter_results(results, file_types, exclude)
-        print_results(results, json_output, files_only, compact, root=path)
-
-        if not quiet and not json_output and not files_only:
-            err_console.print(f"[dim]{len(results)} results ({search_time:.2f}s)[/]")
-
-        raise typer.Exit(EXIT_MATCH if results else EXIT_NO_MATCH)
-
-    # Default: semantic search
+    # Semantic search
     # Check omendb is available
     from .semantic import HAS_OMENDB
 
     if not HAS_OMENDB:
         err_console.print("[red]Error:[/] omendb not installed (required for semantic search)")
         err_console.print("Upgrade with: uv tool upgrade hygrep")
-        err_console.print("\n[dim]Tip: Use -f for fast mode or -e for exact match[/]")
         raise typer.Exit(EXIT_ERROR)
 
     # Walk up to find existing index, or determine where to create one
@@ -509,7 +384,7 @@ def search(
         else:
             # Require explicit build
             err_console.print("[red]Error:[/] No index found. Run 'hhg build' first.")
-            err_console.print("[dim]Tip: Use -f for fast mode, or set HHG_AUTO_BUILD=1[/]")
+            err_console.print("[dim]Tip: Set HHG_AUTO_BUILD=1 for auto-indexing[/]")
             raise typer.Exit(EXIT_ERROR)
 
     if not no_index:
@@ -749,9 +624,6 @@ def _get_model_status() -> list[dict]:
     from .embedder import MODEL_FILE as EMBED_FILE
     from .embedder import MODEL_REPO as EMBED_REPO
     from .embedder import TOKENIZER_FILE as EMBED_TOKENIZER
-    from .reranker import MODEL_FILE as RERANK_FILE
-    from .reranker import MODEL_REPO as RERANK_REPO
-    from .reranker import TOKENIZER_FILE as RERANK_TOKENIZER
 
     models = []
 
@@ -764,18 +636,6 @@ def _get_model_status() -> list[dict]:
             "name": "embedder",
             "repo": EMBED_REPO,
             "installed": embed_installed,
-        }
-    )
-
-    # Check reranker
-    rerank_model = try_to_load_from_cache(RERANK_REPO, RERANK_FILE)
-    rerank_tokenizer = try_to_load_from_cache(RERANK_REPO, RERANK_TOKENIZER)
-    rerank_installed = rerank_model is not None and rerank_tokenizer is not None
-    models.append(
-        {
-            "name": "reranker",
-            "repo": RERANK_REPO,
-            "installed": rerank_installed,
         }
     )
 
@@ -813,21 +673,12 @@ def install() -> None:
     from .embedder import MODEL_FILE as EMBED_FILE
     from .embedder import MODEL_REPO as EMBED_REPO
     from .embedder import TOKENIZER_FILE as EMBED_TOKENIZER
-    from .reranker import MODEL_FILE as RERANK_FILE
-    from .reranker import MODEL_REPO as RERANK_REPO
-    from .reranker import TOKENIZER_FILE as RERANK_TOKENIZER
 
-    models = [
-        ("embedder", EMBED_REPO, [EMBED_FILE, EMBED_TOKENIZER]),
-        ("reranker", RERANK_REPO, [RERANK_FILE, RERANK_TOKENIZER]),
-    ]
+    console.print(f"[dim]Downloading embedder ({EMBED_REPO})...[/]")
+    for filename in [EMBED_FILE, EMBED_TOKENIZER]:
+        hf_hub_download(repo_id=EMBED_REPO, filename=filename, force_download=True)
 
-    for name, repo, files in models:
-        console.print(f"[dim]Downloading {name} ({repo})...[/]")
-        for filename in files:
-            hf_hub_download(repo_id=repo, filename=filename, force_download=True)
-
-    console.print("[green]✓[/] All models installed")
+    console.print("[green]✓[/] Model installed")
 
 
 def main():

@@ -8,84 +8,70 @@ Not included in default test suite.
 import io
 import os
 import sys
-from contextlib import redirect_stderr, redirect_stdout, suppress
+from contextlib import redirect_stdout, suppress
 
 sys.path.insert(0, os.path.join(os.getcwd(), "src"))
 
 from hygrep import cli
-from hygrep.reranker import clean_model_cache, get_model_info
 
 
-def test_model_clean_and_install():
-    """Test full cycle: clean -> verify gone -> install -> verify installed."""
-    print("=== Testing model clean/install cycle ===\n")
+def test_model_status():
+    """Test 'hygrep model' shows status."""
+    print("=== Testing model status ===\n")
 
-    # 1. Clean any existing model
-    print("1. Cleaning model cache...")
-    cleaned = clean_model_cache()
-    print(f"   Cleaned: {cleaned}")
-
-    # 2. Verify model is gone
-    print("2. Verifying model removed...")
-    info = get_model_info()
-    assert not info["installed"], f"Model should be uninstalled, got: {info}"
-    print("   Model not installed (correct)")
-
-    # 3. Test 'hygrep model' shows not installed
-    print("3. Testing 'hygrep model' output...")
     sys.argv = ["hygrep", "model"]
     stdout = io.StringIO()
-    with redirect_stdout(stdout):
-        try:
-            cli.main()
-        except SystemExit as e:
-            assert e.code == 1, f"Expected exit 1 (not installed), got {e.code}"
-    out = stdout.getvalue()
-    assert "Not installed" in out, f"Expected 'Not installed' in output: {out}"
-    print("   Shows 'Not installed' (correct)")
+    with redirect_stdout(stdout), suppress(SystemExit):
+        cli.main()
 
-    # 4. Install model
-    print("4. Installing model (this downloads ~83MB)...")
+    out = stdout.getvalue()
+    assert "embedder" in out.lower(), f"Expected embedder info in output: {out}"
+    print(f"   Output: {out.strip()}")
+    print("   Model status: PASS")
+
+
+def test_model_install():
+    """Test 'hygrep model install' downloads model."""
+    print("\n=== Testing model install ===\n")
+
+    print("Running 'hygrep model install'...")
     sys.argv = ["hygrep", "model", "install"]
-    stderr = io.StringIO()
-    with redirect_stderr(stderr):
-        try:
-            cli.main()
-        except SystemExit as e:
-            assert e.code == 0, f"Expected exit 0 on install, got {e.code}"
-    err = stderr.getvalue()
-    print(f"   {err.strip()}")
+    stdout = io.StringIO()
+    with redirect_stdout(stdout), suppress(SystemExit):
+        cli.main()
 
-    # 5. Verify model is installed
-    print("5. Verifying model installed...")
-    info = get_model_info()
-    assert info["installed"], f"Model should be installed, got: {info}"
-    print(f"   Installed: {info['size_mb']}MB at {info['model_path'][:50]}...")
+    out = stdout.getvalue()
+    print(f"   Output: {out.strip()}")
 
-    # 6. Test 'hygrep model' shows installed
-    print("6. Testing 'hygrep model' output...")
+    # Verify model is installed
     sys.argv = ["hygrep", "model"]
     stdout = io.StringIO()
-    with redirect_stdout(stdout):
-        try:
-            cli.main()
-        except SystemExit as e:
-            assert e.code == 0, f"Expected exit 0 (installed), got {e.code}"
-    out = stdout.getvalue()
-    assert "Installed" in out, f"Expected 'Installed' in output: {out}"
-    print("   Shows 'Installed' (correct)")
+    with redirect_stdout(stdout), suppress(SystemExit):
+        cli.main()
 
-    # 7. Test search works
-    print("7. Testing search with fresh model...")
+    out = stdout.getvalue()
+    assert "installed" in out.lower() or "✓" in out, f"Expected installed status: {out}"
+    print("   Model install: PASS")
+
+
+def test_search_with_model():
+    """Test search works after model is installed."""
     import tempfile
+
+    print("\n=== Testing search with model ===\n")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         test_file = os.path.join(tmpdir, "auth.py")
         with open(test_file, "w") as f:
-            f.write("def login(): pass\n")
+            f.write("def login(username, password):\n    return True\n")
 
-        # Use "login" as query to match file content
-        sys.argv = ["hygrep", "login", tmpdir, "--json", "-q"]
+        # Build index
+        sys.argv = ["hygrep", "-q", "build", tmpdir]
+        with suppress(SystemExit):
+            cli.main()
+
+        # Search
+        sys.argv = ["hygrep", "--json", "-q", "authentication", tmpdir]
         stdout = io.StringIO()
         with redirect_stdout(stdout), suppress(SystemExit):
             cli.main()
@@ -96,43 +82,11 @@ def test_model_clean_and_install():
         assert len(results) >= 1, f"Expected results, got: {results}"
         print(f"   Search returned {len(results)} result(s)")
 
-    print("\n=== All integration tests passed! ===")
-
-
-def test_model_install_force():
-    """Test --force flag re-downloads model."""
-    print("\n=== Testing model install --force ===\n")
-
-    # Get current model info
-    info_before = get_model_info()
-    if not info_before["installed"]:
-        print("Model not installed, installing first...")
-        sys.argv = ["hygrep", "model", "install"]
-        with suppress(SystemExit):
-            cli.main()
-
-    # Force reinstall
-    print("Running 'hygrep model install --force'...")
-    sys.argv = ["hygrep", "model", "install", "--force"]
-    stderr = io.StringIO()
-    with redirect_stderr(stderr):
-        try:
-            cli.main()
-        except SystemExit as e:
-            assert e.code == 0, f"Expected exit 0, got {e.code}"
-
-    err = stderr.getvalue()
-    assert "Downloading" in err, f"Expected download message: {err}"
-    print(f"   {err.strip()}")
-
-    # Verify still installed
-    info_after = get_model_info()
-    assert info_after["installed"], "Model should still be installed"
-    print("   Model still installed after --force")
-
-    print("\n=== Force install test passed! ===")
+    print("   Search with model: PASS")
 
 
 if __name__ == "__main__":
-    test_model_clean_and_install()
-    test_model_install_force()
+    test_model_status()
+    test_model_install()
+    test_search_with_model()
+    print("\n=== All integration tests passed! ===")

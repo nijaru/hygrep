@@ -6,7 +6,6 @@ How it works:
 
 1. **Index**: ModernBERT embeddings for code blocks (requires `hhg build` first, or set `HHG_AUTO_BUILD=1`)
 2. **Search**: Vector similarity via omendb (auto-updates stale files)
-3. **Fallback**: `-f` for grep + neural rerank, `-e`/`-r` for exact/regex grep
 
 ## Quick Reference
 
@@ -14,8 +13,6 @@ How it works:
 pixi run build-ext            # Build Mojo scanner extension
 pixi run hhg build ./src      # Build semantic index (required first)
 pixi run hhg "query" ./src    # Semantic search (requires index)
-pixi run hhg -f "query" .     # Fast mode (grep + rerank, no index needed)
-pixi run hhg -e "pattern" .   # Exact grep (fastest)
 pixi run hhg --json "query" . # JSON output for agents
 pixi run test                 # Run all tests
 ```
@@ -23,7 +20,7 @@ pixi run test                 # Run all tests
 ## Architecture
 
 ```
-Default (semantic):
+Semantic Search:
 Query → Embed → Vector search (omendb) → Results
                ↓
          Requires 'hhg build' first (.hhg/)
@@ -32,12 +29,6 @@ Query → Embed → Vector search (omendb) → Results
 Index hierarchy:
 - Building: checks parent (refuses if exists), merges subdirs (fast vector copy)
 - Searching: walks up to find index, filters results to search scope
-
-Fast mode (-f):
-Query → [Mojo Scanner] → matching files → [Tree-sitter] → code blocks → [ONNX Reranker] → Results
-              ↓                                 ↓                              ↓
-        POSIX regex grep                  Extract functions           Cross-encoder scoring
-        (parallel, libc)                  & classes from AST          (batched inference)
 ```
 
 | Component  | Implementation                                                  |
@@ -46,7 +37,6 @@ Query → [Mojo Scanner] → matching files → [Tree-sitter] → code blocks �
 | Extraction | `src/hygrep/extractor.py` (Tree-sitter AST)                     |
 | Embeddings | `src/hygrep/embedder.py` (ModernBERT ONNX)                      |
 | Vector DB  | `src/hygrep/semantic.py` (omendb wrapper)                       |
-| Reranking  | `src/hygrep/reranker.py` (cross-encoder, for -f mode)           |
 
 ## Project Structure
 
@@ -57,11 +47,10 @@ src/
 │   └── c_regex.mojo    # POSIX regex FFI (libc)
 ├── hygrep/
 │   ├── __init__.py     # Package version
-│   ├── cli.py          # CLI entry point (semantic-first)
+│   ├── cli.py          # CLI entry point
 │   ├── embedder.py     # ModernBERT ONNX embeddings
 │   ├── semantic.py     # SemanticIndex (omendb wrapper)
 │   ├── extractor.py    # Tree-sitter extraction
-│   ├── reranker.py     # Cross-encoder (for -f mode)
 │   └── _scanner.so     # Built extension (gitignored)
 tests/                  # Mojo + Python tests
 pyproject.toml          # Python packaging
@@ -70,15 +59,14 @@ hatch_build.py          # Platform wheel hook
 
 ## Technology Stack
 
-| Component    | Version                | Notes                      |
-| ------------ | ---------------------- | -------------------------- |
-| Mojo         | 25.7.\*                | Via MAX package            |
-| Python       | >=3.11, <3.14          | CLI + inference            |
-| ONNX Runtime | >=1.16                 | Model execution            |
-| Tree-sitter  | >=0.24                 | AST parsing (22 languages) |
-| omendb       | >=0.0.1a1              | Vector database            |
-| Embeddings   | ModernBERT-embed-base  | INT8, 256 dims, ~40MB      |
-| Reranker     | mxbai-rerank-xsmall-v1 | INT8, ~40MB (for -f mode)  |
+| Component    | Version               | Notes                      |
+| ------------ | --------------------- | -------------------------- |
+| Mojo         | 25.7.\*               | Via MAX package            |
+| Python       | >=3.11, <3.14         | CLI + inference            |
+| ONNX Runtime | >=1.16                | Model execution            |
+| Tree-sitter  | >=0.24                | AST parsing (22 languages) |
+| omendb       | >=0.0.1a1             | Vector database            |
+| Embeddings   | ModernBERT-embed-base | INT8, 256 dims, ~40MB      |
 
 ## Mojo Patterns
 

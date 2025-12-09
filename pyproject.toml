@@ -12,7 +12,7 @@ requires-python = ">=3.11,<3.14"
 authors = [
     { name = "nijaru" }
 ]
-keywords = ["grep", "search", "code", "cli", "reranking"]
+keywords = ["grep", "search", "code", "cli", "semantic"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",

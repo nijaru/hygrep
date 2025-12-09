@@ -1,7 +1,7 @@
 [workspace]
 name = "hygrep"
 version = "0.1.0"
-description = "Hybrid grep: fast scanning + neural reranking"
+description = "Semantic code search with automatic indexing"
 authors = ["nijaru"]
 channels = ["conda-forge", "https://conda.modular.com/max/", "pytorch"]
 platforms = ["osx-arm64", "linux-64"]
@@ -52,6 +52,6 @@ hhg = { cmd = "python -m hygrep.cli", env = { PYTHONPATH = "src" } }
 # Run Mojo tests
 test-mojo = "mojo -I . tests/test_regex_smoke.mojo && mojo -I . tests/test_scanner.mojo"
 # Run Python tests
-test-py = { cmd = "python tests/test_context.py && python tests/test_reranker.py && python tests/test_embedder.py && python tests/test_semantic.py && python tests/test_cli.py && python tests/test_golden.py && python tests/test_languages.py && python tests/test_scanner_fallback.py", env = { PYTHONPATH = "src" } }
+test-py = { cmd = "python tests/test_context.py && python tests/test_embedder.py && python tests/test_semantic.py && python tests/test_cli.py && python tests/test_golden.py && python tests/test_languages.py && python tests/test_scanner_fallback.py", env = { PYTHONPATH = "src" } }
 # Run all tests
 test = { depends-on = ["test-mojo", "test-py"] }

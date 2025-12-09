@@ -4,6 +4,7 @@
 
 ```bash
 pip install hygrep
+hhg build ./src
 hhg "authentication flow" ./src
 ```
 
@@ -37,25 +38,8 @@ grep finds text. hhg finds code.
 | "authentication" | Strings containing "auth" | `login()`, `verify_token()`   |
 | "database"       | Config files, comments    | `Connection`, `query()`, `Db` |
 
-Use grep for exact strings (`TODO`, `FIXME`, import statements).
+Use grep/ripgrep for exact strings (`TODO`, `FIXME`, import statements).
 Use hhg when you want implementations, not mentions.
-
-## Search Modes
-
-| Mode         | Flag      | Use Case                              |
-| ------------ | --------- | ------------------------------------- |
-| **Semantic** | (default) | Best quality, uses embeddings + index |
-| **Fast**     | `-f`      | No index, grep + neural rerank        |
-| **Exact**    | `-e`      | Fastest, literal string match         |
-| **Regex**    | `-r`      | Pattern matching                      |
-
-```bash
-hhg build ./src                 # Build index first (one-time)
-hhg "auth flow" ./src           # Semantic search (requires index)
-hhg -f "validate" ./src         # Grep + neural rerank (no index needed)
-hhg -e "TODO" ./src             # Exact match (fastest)
-hhg -r "TODO.*fix" ./src        # Regex match
-```
 
 ## Install
 
@@ -69,21 +53,24 @@ uv tool install hygrep --python 3.13
 pipx install hygrep
 ```
 
-First search builds an index automatically (stored in `.hhg/`). Models are downloaded from HuggingFace and cached.
+Models are downloaded from HuggingFace on first use (~40MB).
 
 ## Usage
 
 ```bash
-hhg "query" [path]              # Search (default: current dir)
+hhg build [path]                # Build/update index (required first)
+hhg "query" [path]              # Semantic search
+hhg status [path]               # Check index status
+hhg clean [path]                # Delete index
+
+# Options
 hhg -n 5 "error handling" .     # Limit results
 hhg --json "auth" .             # JSON output for scripts/agents
 hhg -l "config" .               # List matching files only
 hhg -t py,js "api" .            # Filter by file type
 hhg --exclude "tests/*" "fn" .  # Exclude patterns
-hhg status [path]               # Check index status
-hhg build [path]                # Update index (incremental)
-hhg build --force [path]        # Full rebuild from scratch
-hhg clean [path]                # Delete index
+
+# Model management
 hhg model                       # Check model status
 hhg model install               # Download/reinstall models
 ```
@@ -121,25 +108,11 @@ Compact JSON (`--json --compact`): Same fields without `content`.
 
 ## How it Works
 
-**Semantic mode (default):**
-
 ```
-Query → Embed → Vector search → Results
+Query → Embed → Vector search (omendb) → Results
          ↓
-    Auto-indexes on first run (.hhg/)
-    Auto-updates when files change
-```
-
-**Fast mode (`-f`):**
-
-```
-Query → Grep scan → Tree-sitter extract → Neural rerank → Results
-```
-
-**Exact/Regex mode (`-e`/`-r`):**
-
-```
-Pattern → Grep scan → Tree-sitter extract → Results
+    Requires 'hhg build' first (.hhg/)
+    Auto-updates stale files on search
 ```
 
 ## Supported Languages
