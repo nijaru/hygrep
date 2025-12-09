@@ -1,3 +1,5 @@
-"""hygrep - Hybrid grep: fast scanning + neural reranking."""
+"""hygrep - Hybrid file search with semantic + keyword matching."""
 
-__version__ = "0.0.12"
+from pathlib import Path
+
+__version__ = (Path(__file__).parent / "VERSION").read_text().strip()

@@ -2,8 +2,8 @@
 
 | Metric    | Value                             | Updated    |
 | --------- | --------------------------------- | ---------- |
-| Phase     | 15 (Release 0.0.13)               | 2025-12-09 |
-| Version   | 0.0.13 (pending release)          | 2025-12-09 |
+| Phase     | 16 (Post-release)                 | 2025-12-09 |
+| Version   | 0.0.13 (PyPI)                     | 2025-12-09 |
 | Branch    | main                              | 2025-12-09 |
 | PyPI      | https://pypi.org/project/hygrep/  | 2025-12-05 |
 | CLI       | `hhg` (primary), `hygrep` (alias) | 2025-12-05 |
@@ -72,7 +72,7 @@ None.
 
 ## Next Steps
 
-1. Trigger release workflow for 0.0.13
+None - 0.0.13 released.
 
 ## Branch Status
 

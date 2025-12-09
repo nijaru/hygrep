@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hygrep"
-version = "0.0.13"
+dynamic = ["version"]
 description = "Hybrid file search — semantic + keyword matching"
 readme = "README.md"
 license = "MIT"
@@ -73,6 +73,10 @@ hygrep = "hygrep.cli:main"
 [project.urls]
 Homepage = "https://github.com/nijaru/hygrep"
 Repository = "https://github.com/nijaru/hygrep"
+
+[tool.hatch.version]
+path = "src/hygrep/VERSION"
+pattern = "(?P<version>.+)"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hygrep"]
