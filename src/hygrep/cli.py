@@ -408,6 +408,9 @@ def search(
             else:
                 index.update(files)
 
+        # Release lock before search
+        index._db = None
+
     # Run semantic search
     if not quiet:
         with Status(f"Searching for: {query}...", console=err_console):
