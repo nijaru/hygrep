@@ -70,26 +70,33 @@ def find_parent_index(path: Path) -> Path | None:
     return None
 
 
-def find_subdir_indexes(path: Path) -> list[Path]:
-    """Find all .hhg/ directories in subdirectories.
+def find_subdir_indexes(path: Path, include_root: bool = False) -> list[Path]:
+    """Find all .hhg/ directories under path.
 
     Args:
         path: Root directory to search under.
+        include_root: If True, include index at path itself (for hhg list).
 
     Returns:
-        List of paths to .hhg/ directories found in subdirs.
+        List of paths to .hhg/ directories found.
     """
     path = Path(path).resolve()
     indexes = []
 
     for root, dirs, _files in os.walk(path):
         root_path = Path(root)
-        # Skip the path itself
+
+        # Filter hidden directories early (before continue), but keep .hhg for detection
+        dirs[:] = [d for d in dirs if not d.startswith(".") or d == INDEX_DIR]
+
+        # Handle root path
         if root_path == path:
-            # Check subdirs for .hhg
             if INDEX_DIR in dirs:
-                # Don't descend into .hhg
-                dirs.remove(INDEX_DIR)
+                dirs.remove(INDEX_DIR)  # Don't descend into .hhg
+                if include_root:
+                    index_path = root_path / INDEX_DIR
+                    if (index_path / MANIFEST_FILE).exists():
+                        indexes.append(index_path)
             continue
 
         # Found .hhg in a subdir
@@ -97,11 +104,7 @@ def find_subdir_indexes(path: Path) -> list[Path]:
             index_path = root_path / INDEX_DIR
             if (index_path / MANIFEST_FILE).exists():
                 indexes.append(index_path)
-            # Don't descend into .hhg
-            dirs.remove(INDEX_DIR)
-
-        # Skip hidden directories
-        dirs[:] = [d for d in dirs if not d.startswith(".")]
+            dirs.remove(INDEX_DIR)  # Don't descend into .hhg
 
     return indexes
 
@@ -187,7 +190,10 @@ class SemanticIndex:
         Migrates from older formats on load.
         """
         if self.manifest_path.exists():
-            data = json.loads(self.manifest_path.read_text())
+            content = self.manifest_path.read_text().strip()
+            if not content:
+                return {"version": MANIFEST_VERSION, "files": {}}
+            data = json.loads(content)
             version = data.get("version", 1)
             files = data.get("files", {})
 

@@ -34,6 +34,7 @@ app = typer.Typer(
     no_args_is_help=False,
     invoke_without_command=True,
     add_completion=False,
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
 )
 
 
@@ -263,6 +264,8 @@ def search(
     no_index: bool = typer.Option(False, "--no-index", help="Skip auto-index (fail if missing)"),
     # Meta
     version: bool = typer.Option(False, "-v", "--version", help="Show version"),
+    # Hidden options for subcommand passthrough
+    recursive: bool = typer.Option(False, "--recursive", "-r", hidden=True),
 ):
     """Semantic code search.
 
@@ -276,43 +279,108 @@ def search(
 
     # Handle case where user typed a subcommand name as query
     # (Typer can't distinguish due to optional positional args)
-    path_str = str(path)
     if query == "status":
-        if path_str in ("--help", "-h"):
-            console.print(
-                "Usage: hhg status [PATH]\n\nShow index status for PATH (default: current dir)."
-            )
-            raise typer.Exit()
-        err_console.print(f"[dim]Running: hhg status {path}[/]")
-        status(path=path)
+        # Parse from saved original argv, or fall back to typer-parsed values
+        if _subcommand_original_argv:
+            status_args = _subcommand_original_argv[1:]
+            if "--help" in status_args or "-h" in status_args:
+                console.print(
+                    "Usage: hhg status [PATH]\n\nShow index status for PATH (default: current dir)."
+                )
+                raise typer.Exit()
+            actual_path = Path(".")
+            for arg in status_args:
+                if not arg.startswith("-"):
+                    actual_path = Path(arg)
+                    break
+        else:
+            actual_path = path
+        err_console.print(f"[dim]Running: hhg status {actual_path}[/]")
+        status(path=actual_path)
         raise typer.Exit()
     elif query == "build":
-        if path_str in ("--help", "-h"):
-            console.print(
-                "Usage: hhg build [PATH] [--force] [-q]\n\n"
-                "Build/update index for PATH (default: current dir)."
-            )
-            raise typer.Exit()
-        # Handle --force flag
-        force_build = path_str in ("--force", "-f")
-        actual_path = Path(".") if force_build else path
+        # Parse from saved original argv (main() strips args before typer sees them)
+        # Fall back to typer-parsed values if preprocessing didn't run (e.g., -q before build)
+        if _subcommand_original_argv:
+            build_args = _subcommand_original_argv[1:]
+            if "--help" in build_args or "-h" in build_args:
+                console.print(
+                    "Usage: hhg build [PATH] [--force] [-q]\n\n"
+                    "Build/update index for PATH (default: current dir)."
+                )
+                raise typer.Exit()
+            force_build = "--force" in build_args or "-f" in build_args
+            quiet_build = "--quiet" in build_args or "-q" in build_args
+            actual_path = Path(".")
+            for arg in build_args:
+                if not arg.startswith("-"):
+                    actual_path = Path(arg)
+                    break
+        else:
+            # Preprocessing didn't run, use typer-parsed values
+            actual_path = path
+            force_build = False  # Would need to be parsed from ctx.args if needed
+            quiet_build = quiet
+
         err_console.print(
             f"[dim]Running: hhg build {actual_path}{' --force' if force_build else ''}[/]"
         )
-        build(path=actual_path, force=force_build, quiet=quiet)
+        build(path=actual_path, force=force_build, quiet=quiet_build)
         raise typer.Exit()
     elif query == "clean":
-        if path_str in ("--help", "-h"):
-            console.print(
-                "Usage: hhg clean [PATH]\n\nDelete index for PATH (default: current dir)."
-            )
-            raise typer.Exit()
-        err_console.print(f"[dim]Running: hhg clean {path}[/]")
-        clean(path=path)
+        # Parse from saved original argv, or fall back to typer-parsed values
+        if _subcommand_original_argv:
+            clean_args = _subcommand_original_argv[1:]
+            if "--help" in clean_args or "-h" in clean_args:
+                console.print(
+                    "Usage: hhg clean [PATH] [-r/--recursive]\n\n"
+                    "Delete index for PATH (default: current dir).\n"
+                    "Use -r/--recursive to also delete indexes in subdirectories.\n\n"
+                    "Examples:\n"
+                    "  hhg clean              # Delete index in current dir\n"
+                    "  hhg clean ./src        # Delete index in ./src\n"
+                    "  hhg clean -r           # Delete all indexes recursively\n"
+                    "  hhg clean ./src -r     # Delete indexes in ./src recursively"
+                )
+                raise typer.Exit()
+            actual_recursive = "-r" in clean_args or "--recursive" in clean_args
+            actual_path = Path(".")
+            for arg in clean_args:
+                if not arg.startswith("-"):
+                    actual_path = Path(arg)
+                    break
+        else:
+            actual_path = path
+            actual_recursive = recursive
+        err_console.print(
+            f"[dim]Running: hhg clean {actual_path}{' --recursive' if actual_recursive else ''}[/]"
+        )
+        clean(path=actual_path, recursive=actual_recursive)
+        raise typer.Exit()
+    elif query == "list":
+        # Parse from saved original argv, or fall back to typer-parsed values
+        if _subcommand_original_argv:
+            list_args = _subcommand_original_argv[1:]
+            if "--help" in list_args or "-h" in list_args:
+                console.print(
+                    "Usage: hhg list [PATH]\n\nList all indexes under PATH (default: current dir)."
+                )
+                raise typer.Exit()
+            actual_path = Path(".")
+            for arg in list_args:
+                if not arg.startswith("-"):
+                    actual_path = Path(arg)
+                    break
+        else:
+            actual_path = path
+        err_console.print(f"[dim]Running: hhg list {actual_path}[/]")
+        list_indexes(path=actual_path)
         raise typer.Exit()
     elif query == "model":
-        # Handle model subcommand
-        if path_str in ("--help", "-h"):
+        # Parse from saved original argv (main() strips args before typer sees them)
+        model_args = _subcommand_original_argv[1:] if _subcommand_original_argv else []
+
+        if "--help" in model_args or "-h" in model_args:
             console.print(
                 "Usage: hhg model [COMMAND]\n\n"
                 "Commands:\n"
@@ -320,7 +388,7 @@ def search(
                 "  install    Download/reinstall models"
             )
             raise typer.Exit()
-        elif path_str == "install":
+        elif "install" in model_args:
             err_console.print("[dim]Running: hhg model install[/]")
             install()
             raise typer.Exit()
@@ -342,6 +410,7 @@ def search(
                 "  hhg <query> [path]    Search for code semantically\n"
                 "  hhg build [path]      Build/update index\n"
                 "  hhg status [path]     Show index status\n"
+                "  hhg list [path]       List all indexes\n"
                 "  hhg clean [path]      Delete index\n\n"
                 "[dim]Options:[/]\n"
                 "  -n N                  Number of results (default: 10)\n"
@@ -589,10 +658,10 @@ def build(
             err_console.print(f"[dim]Removed superseded index: {idx.parent.relative_to(path)}[/]")
 
 
-@app.command()
-def clean(path: Path = typer.Argument(Path("."), help="Directory")):
-    """Delete index."""
-    from .semantic import HAS_OMENDB, SemanticIndex
+@app.command(name="list")
+def list_indexes(path: Path = typer.Argument(Path("."), help="Directory to search")):
+    """List all indexes under a directory."""
+    from .semantic import HAS_OMENDB, SemanticIndex, find_subdir_indexes
 
     if not HAS_OMENDB:
         err_console.print("[red]Error:[/] omendb not installed")
@@ -600,14 +669,69 @@ def clean(path: Path = typer.Argument(Path("."), help="Directory")):
         raise typer.Exit(EXIT_ERROR)
 
     path = path.resolve()
+    indexes = find_subdir_indexes(path, include_root=True)
 
-    if not index_exists(path):
-        err_console.print("[dim]No index to delete[/]")
+    if not indexes:
+        err_console.print("[dim]No indexes found[/]")
         raise typer.Exit()
 
-    index = SemanticIndex(path)
-    index.clear()
-    console.print("[green]✓[/] Index deleted")
+    for idx_path in indexes:
+        idx_root = idx_path.parent
+        try:
+            rel_path = idx_root.relative_to(path)
+            display_path = f"./{rel_path}" if str(rel_path) != "." else "."
+        except ValueError:
+            display_path = str(idx_root)
+
+        # Get block count from manifest
+        index = SemanticIndex(idx_root)
+        block_count = index.count()
+        console.print(f"  {display_path}/.hhg/ [dim]({block_count} blocks)[/]")
+
+
+@app.command(context_settings={"allow_interspersed_args": True})
+def clean(
+    path: Path = typer.Argument(Path("."), help="Directory"),
+    recursive: bool = typer.Option(
+        False, "--recursive", "-r", help="Also delete indexes in subdirectories"
+    ),
+):
+    """Delete index."""
+    import shutil
+
+    from .semantic import HAS_OMENDB, SemanticIndex, find_subdir_indexes
+
+    if not HAS_OMENDB:
+        err_console.print("[red]Error:[/] omendb not installed")
+        err_console.print("Upgrade with: uv tool upgrade hygrep")
+        raise typer.Exit(EXIT_ERROR)
+
+    path = path.resolve()
+    deleted_count = 0
+
+    # Delete root index if exists
+    if index_exists(path):
+        index = SemanticIndex(path)
+        index.clear()
+        console.print("[green]✓[/] Deleted ./.hhg/")
+        deleted_count += 1
+
+    # Delete subdir indexes if recursive
+    if recursive:
+        subdir_indexes = find_subdir_indexes(path, include_root=False)
+        for idx_path in subdir_indexes:
+            try:
+                rel_path = idx_path.parent.relative_to(path)
+                shutil.rmtree(idx_path)
+                console.print(f"[green]✓[/] Deleted ./{rel_path}/.hhg/")
+                deleted_count += 1
+            except Exception as e:
+                err_console.print(f"[red]Error:[/] Failed to delete {idx_path}: {e}")
+
+    if deleted_count == 0:
+        err_console.print("[dim]No indexes to delete[/]")
+    elif deleted_count > 1:
+        console.print(f"[dim]Deleted {deleted_count} indexes[/]")
 
 
 # Model command group
@@ -684,8 +808,30 @@ def install() -> None:
     console.print("[green]✓[/] Model installed")
 
 
+_subcommand_original_argv = None
+
+
 def main():
     """Entry point."""
+    import sys
+
+    global _subcommand_original_argv
+
+    # Reset global state (important for test isolation)
+    _subcommand_original_argv = None
+
+    # Pre-process argv to handle subcommand flags before typer sees them
+    # Typer's callback pattern with positional args (query, path) confuses it:
+    # "clean . -r" -> query="clean", path=".", leftover "-r" = "command not found"
+    # Solution: strip path/flags from subcommands and let callback parse saved argv
+    argv = sys.argv[1:]  # Skip program name
+
+    if len(argv) >= 1 and argv[0] in ("clean", "build", "list", "status", "model"):
+        # Save original args for callback to parse
+        _subcommand_original_argv = argv
+        # Just pass subcommand name to typer
+        sys.argv = [sys.argv[0], argv[0]]
+
     app()
 
 
