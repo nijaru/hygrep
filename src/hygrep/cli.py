@@ -280,123 +280,60 @@ def search(
     # Handle case where user typed a subcommand name as query
     # (Typer can't distinguish due to optional positional args)
     if query == "status":
-        # Parse from saved original argv, or fall back to typer-parsed values
-        if _subcommand_original_argv:
-            status_args = _subcommand_original_argv[1:]
-            if "--help" in status_args or "-h" in status_args:
-                console.print(
-                    "Usage: hhg status [PATH]\n\nShow index status for PATH (default: current dir)."
-                )
-                raise typer.Exit()
-            actual_path = Path(".")
-            for arg in status_args:
-                if not arg.startswith("-"):
-                    actual_path = Path(arg)
-                    break
-        else:
-            actual_path = path
+        if _check_help_flag():
+            console.print(
+                "Usage: hhg status [PATH]\n\nShow index status for PATH (default: current dir)."
+            )
+            raise typer.Exit()
+        actual_path, _ = _parse_subcommand_args(path)
         err_console.print(f"[dim]Running: hhg status {actual_path}[/]")
         status(path=actual_path)
         raise typer.Exit()
-    elif query == "build":
-        # Parse from saved original argv (main() strips args before typer sees them)
-        # Fall back to typer-parsed values if preprocessing didn't run (e.g., -q before build)
-        if _subcommand_original_argv:
-            build_args = _subcommand_original_argv[1:]
-            if "--help" in build_args or "-h" in build_args:
-                console.print(
-                    "Usage: hhg build [PATH] [--force] [-q]\n\n"
-                    "Build/update index for PATH (default: current dir)."
-                )
-                raise typer.Exit()
-            force_build = "--force" in build_args or "-f" in build_args
-            quiet_build = "--quiet" in build_args or "-q" in build_args
-            actual_path = Path(".")
-            for arg in build_args:
-                if not arg.startswith("-"):
-                    actual_path = Path(arg)
-                    break
-        else:
-            # Preprocessing didn't run, use typer-parsed values
-            actual_path = path
-            force_build = False  # Would need to be parsed from ctx.args if needed
-            quiet_build = quiet
 
+    elif query == "build":
+        if _check_help_flag():
+            console.print(
+                "Usage: hhg build [PATH] [--force] [-q]\n\n"
+                "Build/update index for PATH (default: current dir)."
+            )
+            raise typer.Exit()
+        actual_path, flags = _parse_subcommand_args(path, {"force": False, "quiet": quiet})
         err_console.print(
-            f"[dim]Running: hhg build {actual_path}{' --force' if force_build else ''}[/]"
+            f"[dim]Running: hhg build {actual_path}{' --force' if flags['force'] else ''}[/]"
         )
-        build(path=actual_path, force=force_build, quiet=quiet_build)
+        build(path=actual_path, force=flags["force"], quiet=flags["quiet"])
         raise typer.Exit()
+
     elif query == "clean":
-        # Parse from saved original argv, or fall back to typer-parsed values
-        if _subcommand_original_argv:
-            clean_args = _subcommand_original_argv[1:]
-            if "--help" in clean_args or "-h" in clean_args:
-                console.print(
-                    "Usage: hhg clean [PATH] [-r/--recursive]\n\n"
-                    "Delete index for PATH (default: current dir).\n"
-                    "Use -r/--recursive to also delete indexes in subdirectories.\n\n"
-                    "Examples:\n"
-                    "  hhg clean              # Delete index in current dir\n"
-                    "  hhg clean ./src        # Delete index in ./src\n"
-                    "  hhg clean -r           # Delete all indexes recursively\n"
-                    "  hhg clean ./src -r     # Delete indexes in ./src recursively"
-                )
-                raise typer.Exit()
-            actual_recursive = "-r" in clean_args or "--recursive" in clean_args
-            actual_path = Path(".")
-            for arg in clean_args:
-                if not arg.startswith("-"):
-                    actual_path = Path(arg)
-                    break
-        else:
-            actual_path = path
-            actual_recursive = recursive
+        if _check_help_flag():
+            console.print(
+                "Usage: hhg clean [PATH] [-r/--recursive]\n\n"
+                "Delete index for PATH (default: current dir).\n"
+                "Use -r/--recursive to also delete indexes in subdirectories.\n\n"
+                "Examples:\n"
+                "  hhg clean              # Delete index in current dir\n"
+                "  hhg clean ./src        # Delete index in ./src\n"
+                "  hhg clean -r           # Delete all indexes recursively\n"
+                "  hhg clean ./src -r     # Delete indexes in ./src recursively"
+            )
+            raise typer.Exit()
+        actual_path, flags = _parse_subcommand_args(path, {"recursive": recursive})
         err_console.print(
-            f"[dim]Running: hhg clean {actual_path}{' --recursive' if actual_recursive else ''}[/]"
+            f"[dim]Running: hhg clean {actual_path}{' --recursive' if flags['recursive'] else ''}[/]"
         )
-        clean(path=actual_path, recursive=actual_recursive)
+        clean(path=actual_path, recursive=flags["recursive"])
         raise typer.Exit()
+
     elif query == "list":
-        # Parse from saved original argv, or fall back to typer-parsed values
-        if _subcommand_original_argv:
-            list_args = _subcommand_original_argv[1:]
-            if "--help" in list_args or "-h" in list_args:
-                console.print(
-                    "Usage: hhg list [PATH]\n\nList all indexes under PATH (default: current dir)."
-                )
-                raise typer.Exit()
-            actual_path = Path(".")
-            for arg in list_args:
-                if not arg.startswith("-"):
-                    actual_path = Path(arg)
-                    break
-        else:
-            actual_path = path
+        if _check_help_flag():
+            console.print(
+                "Usage: hhg list [PATH]\n\nList all indexes under PATH (default: current dir)."
+            )
+            raise typer.Exit()
+        actual_path, _ = _parse_subcommand_args(path)
         err_console.print(f"[dim]Running: hhg list {actual_path}[/]")
         list_indexes(path=actual_path)
         raise typer.Exit()
-    elif query == "model":
-        # Parse from saved original argv (main() strips args before typer sees them)
-        model_args = _subcommand_original_argv[1:] if _subcommand_original_argv else []
-
-        if "--help" in model_args or "-h" in model_args:
-            console.print(
-                "Usage: hhg model [COMMAND]\n\n"
-                "Commands:\n"
-                "  (none)     Show model status\n"
-                "  install    Download/reinstall models"
-            )
-            raise typer.Exit()
-        elif "install" in model_args:
-            err_console.print("[dim]Running: hhg model install[/]")
-            install()
-            raise typer.Exit()
-        else:
-            # Default: show model status
-            err_console.print("[dim]Running: hhg model[/]")
-            model_status(ctx)
-            raise typer.Exit()
 
     if version:
         console.print(f"hhg {__version__}")
@@ -734,81 +671,55 @@ def clean(
         console.print(f"[dim]Deleted {deleted_count} indexes[/]")
 
 
-# Model command group
-model_app = typer.Typer(
-    name="model",
-    help="Manage models",
-    no_args_is_help=False,
-    invoke_without_command=True,
-)
-app.add_typer(model_app, name="model")
-
-
-def _get_model_status() -> list[dict]:
-    """Get status of all models."""
-    from huggingface_hub import try_to_load_from_cache
-
-    from .embedder import MODEL_FILE as EMBED_FILE
-    from .embedder import MODEL_REPO as EMBED_REPO
-    from .embedder import TOKENIZER_FILE as EMBED_TOKENIZER
-
-    models = []
-
-    # Check embedder
-    embed_model = try_to_load_from_cache(EMBED_REPO, EMBED_FILE)
-    embed_tokenizer = try_to_load_from_cache(EMBED_REPO, EMBED_TOKENIZER)
-    embed_installed = embed_model is not None and embed_tokenizer is not None
-    models.append(
-        {
-            "name": "embedder",
-            "repo": EMBED_REPO,
-            "installed": embed_installed,
-        }
-    )
-
-    return models
-
-
-@model_app.callback(invoke_without_command=True)
-def model_status(ctx: typer.Context) -> None:
-    """Show model status."""
-    if ctx.invoked_subcommand is not None:
-        return
-
-    models = _get_model_status()
-
-    all_installed = all(m["installed"] for m in models)
-
-    if all_installed:
-        console.print("[green]✓[/] All models installed")
-    else:
-        console.print("[yellow]![/] Some models missing")
-
-    for m in models:
-        status = "[green]✓[/]" if m["installed"] else "[red]✗[/]"
-        console.print(f"  {status} {m['name']}: {m['repo']}")
-
-    if not all_installed:
-        console.print("\nRun 'hhg model install' to download missing models")
-
-
-@model_app.command()
-def install() -> None:
-    """Download or reinstall models."""
-    from huggingface_hub import hf_hub_download
-
-    from .embedder import MODEL_FILE as EMBED_FILE
-    from .embedder import MODEL_REPO as EMBED_REPO
-    from .embedder import TOKENIZER_FILE as EMBED_TOKENIZER
-
-    console.print(f"[dim]Downloading embedder ({EMBED_REPO})...[/]")
-    for filename in [EMBED_FILE, EMBED_TOKENIZER]:
-        hf_hub_download(repo_id=EMBED_REPO, filename=filename, force_download=True)
-
-    console.print("[green]✓[/] Model installed")
-
-
 _subcommand_original_argv = None
+
+
+def _parse_subcommand_args(
+    typer_path: Path,
+    typer_flags: dict[str, bool | str] | None = None,
+) -> tuple[Path, dict[str, bool | str]]:
+    """Parse subcommand args from saved argv or fall back to typer-parsed values.
+
+    Args:
+        typer_path: The path parsed by typer (fallback).
+        typer_flags: Dict of flag names to typer-parsed values (fallback).
+
+    Returns:
+        Tuple of (path, flags_dict).
+    """
+    flags = typer_flags or {}
+
+    if not _subcommand_original_argv:
+        return typer_path, flags
+
+    args = _subcommand_original_argv[1:]  # Skip subcommand name
+
+    # Parse flags from args
+    parsed_flags = {}
+    for flag_name, default in flags.items():
+        if isinstance(default, bool):
+            # Boolean flag - check short and long forms
+            short = f"-{flag_name[0]}"
+            long = f"--{flag_name}"
+            parsed_flags[flag_name] = short in args or long in args
+        # String flags would need value parsing (not currently used)
+
+    # Find path (first non-flag arg)
+    path = Path(".")
+    for arg in args:
+        if not arg.startswith("-"):
+            path = Path(arg)
+            break
+
+    return path, parsed_flags
+
+
+def _check_help_flag() -> bool:
+    """Check if help flag is in saved argv."""
+    if not _subcommand_original_argv:
+        return False
+    args = _subcommand_original_argv[1:]
+    return "--help" in args or "-h" in args
 
 
 def main():
@@ -826,7 +737,7 @@ def main():
     # Solution: strip path/flags from subcommands and let callback parse saved argv
     argv = sys.argv[1:]  # Skip program name
 
-    if len(argv) >= 1 and argv[0] in ("clean", "build", "list", "status", "model"):
+    if len(argv) >= 1 and argv[0] in ("clean", "build", "list", "status"):
         # Save original args for callback to parse
         _subcommand_original_argv = argv
         # Just pass subcommand name to typer
