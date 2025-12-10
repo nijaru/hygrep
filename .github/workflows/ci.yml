@@ -64,6 +64,7 @@ jobs:
       - name: Test CLI
         run: |
           pixi run hhg --version
+          pixi run hhg build ./src
           pixi run hhg status ./src
-          pixi run hhg -f -n 3 "def" ./src
-        timeout-minutes: 5
+          pixi run hhg -n 3 "function definition" ./src
+        timeout-minutes: 10
