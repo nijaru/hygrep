@@ -11,7 +11,6 @@ from pathlib import Path
 
 import typer
 from rich.console import Console
-from rich.panel import Panel
 from rich.status import Status
 
 from . import __version__
@@ -386,25 +385,9 @@ def search(
         console.print(f"hhg {__version__}")
         raise typer.Exit()
 
-    if not query:
-        console.print(
-            Panel(
-                "[bold]hhg[/] - Semantic code search\n\n"
-                "[dim]Usage:[/]\n"
-                "  hhg <query> [path]   Search for code semantically\n"
-                "  hhg build [path]     Build/update index\n"
-                "  hhg status [path]    Show index status\n"
-                "  hhg list [path]      List all indexes\n"
-                "  hhg clean [path]     Delete index\n"
-                "  hhg model            Check/download embedding model\n\n"
-                "[dim]Options:[/]\n"
-                "  -n N                  Number of results (default: 10)\n"
-                "  -t TYPE               Filter by file type (py,js,ts)\n"
-                "  --json                JSON output\n\n"
-                "[dim]For grep, use ripgrep (rg).[/]",
-                border_style="dim",
-            )
-        )
+    # Handle -h or no query as help (typer parses -h as query since it's first positional)
+    if not query or query in ("-h", "--help"):
+        console.print(ctx.get_help())
         raise typer.Exit()
 
     # Validate path
