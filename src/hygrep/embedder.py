@@ -57,37 +57,54 @@ class Embedder:
         if self._session is not None:
             return
 
-        # Download model files
-        model_path = hf_hub_download(
-            repo_id=MODEL_REPO,
-            filename=MODEL_FILE,
-            cache_dir=self.cache_dir,
-        )
-        tokenizer_path = hf_hub_download(
-            repo_id=MODEL_REPO,
-            filename=TOKENIZER_FILE,
-            cache_dir=self.cache_dir,
-        )
+        try:
+            # Download model files
+            model_path = hf_hub_download(
+                repo_id=MODEL_REPO,
+                filename=MODEL_FILE,
+                cache_dir=self.cache_dir,
+            )
+            tokenizer_path = hf_hub_download(
+                repo_id=MODEL_REPO,
+                filename=TOKENIZER_FILE,
+                cache_dir=self.cache_dir,
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to download model: {e}\n"
+                "Check your network connection and try: hhg model install"
+            ) from e
 
-        # Load tokenizer with truncation for efficiency
-        self._tokenizer = Tokenizer.from_file(tokenizer_path)
-        self._tokenizer.enable_truncation(max_length=MAX_LENGTH)
-        self._tokenizer.enable_padding(pad_id=0, pad_token="[PAD]")
+        try:
+            # Load tokenizer with truncation for efficiency
+            self._tokenizer = Tokenizer.from_file(tokenizer_path)
+            self._tokenizer.enable_truncation(max_length=MAX_LENGTH)
+            self._tokenizer.enable_padding(pad_id=0, pad_token="[PAD]")
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to load tokenizer (may be corrupted): {e}\n"
+                "Try reinstalling: hhg model install"
+            ) from e
 
-        # Load ONNX model
-        opts = ort.SessionOptions()
-        opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        opts.intra_op_num_threads = os.cpu_count() or 4
+        try:
+            # Load ONNX model
+            opts = ort.SessionOptions()
+            opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+            opts.intra_op_num_threads = os.cpu_count() or 4
 
-        self._session = ort.InferenceSession(
-            model_path,
-            sess_options=opts,
-            providers=["CPUExecutionProvider"],
-        )
+            self._session = ort.InferenceSession(
+                model_path,
+                sess_options=opts,
+                providers=["CPUExecutionProvider"],
+            )
 
-        # Cache input/output names
-        self._input_names = [i.name for i in self._session.get_inputs()]
-        self._output_names = [o.name for o in self._session.get_outputs()]
+            # Cache input/output names
+            self._input_names = [i.name for i in self._session.get_inputs()]
+            self._output_names = [o.name for o in self._session.get_outputs()]
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to load model (may be corrupted): {e}\nTry reinstalling: hhg model install"
+            ) from e
 
     def _embed_batch(self, texts: list[str]) -> np.ndarray:
         """Generate embeddings for a batch of texts (internal)."""
