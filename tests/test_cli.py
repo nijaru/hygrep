@@ -361,6 +361,105 @@ def test_clean_command():
     print("Clean command: PASS")
 
 
+def test_list_command():
+    """Test 'hhg list' command."""
+    import io
+    from contextlib import redirect_stderr, redirect_stdout
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # No indexes yet
+        sys.argv = ["hygrep", "list", tmpdir]
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr), contextlib.suppress(SystemExit):
+            cli.main()
+
+        out = stdout.getvalue() + stderr.getvalue()
+        assert "No indexes" in out or "no indexes" in out.lower()
+
+        # Create subdirectory with index
+        subdir = os.path.join(tmpdir, "sub")
+        os.makedirs(subdir)
+        test_file = os.path.join(subdir, "test.py")
+        with open(test_file, "w") as f:
+            f.write("def foo(): pass\n")
+
+        # Build index in subdir
+        sys.argv = ["hygrep", "-q", "build", subdir]
+        with redirect_stdout(io.StringIO()), contextlib.suppress(SystemExit):
+            cli.main()
+
+        # List should find the subdir index
+        sys.argv = ["hygrep", "list", tmpdir]
+        stdout = io.StringIO()
+        with (
+            redirect_stdout(stdout),
+            redirect_stderr(io.StringIO()),
+            contextlib.suppress(SystemExit),
+        ):
+            cli.main()
+
+        out = stdout.getvalue()
+        assert "sub" in out or ".hhg" in out, f"Should find subdir index, got: {out}"
+
+    print("List command: PASS")
+
+
+def test_clean_recursive():
+    """Test 'hhg clean -r' recursive clean."""
+    import io
+    from contextlib import redirect_stdout
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Create nested structure with indexes
+        subdir1 = os.path.join(tmpdir, "sub1")
+        subdir2 = os.path.join(tmpdir, "sub2")
+        os.makedirs(subdir1)
+        os.makedirs(subdir2)
+
+        for subdir in [subdir1, subdir2]:
+            test_file = os.path.join(subdir, "test.py")
+            with open(test_file, "w") as f:
+                f.write("def foo(): pass\n")
+            sys.argv = ["hygrep", "-q", "build", subdir]
+            with redirect_stdout(io.StringIO()), contextlib.suppress(SystemExit):
+                cli.main()
+
+        # Verify indexes exist
+        assert os.path.exists(os.path.join(subdir1, ".hhg"))
+        assert os.path.exists(os.path.join(subdir2, ".hhg"))
+
+        # Clean recursively
+        sys.argv = ["hygrep", "clean", tmpdir, "-r"]
+        stdout = io.StringIO()
+        with redirect_stdout(stdout), contextlib.suppress(SystemExit):
+            cli.main()
+
+        # Both should be gone
+        assert not os.path.exists(os.path.join(subdir1, ".hhg")), "sub1 index should be removed"
+        assert not os.path.exists(os.path.join(subdir2, ".hhg")), "sub2 index should be removed"
+
+    print("Clean recursive: PASS")
+
+
+def test_model_command():
+    """Test 'hhg model' command."""
+    import io
+    from contextlib import redirect_stdout
+
+    # Just check that model status runs without error
+    sys.argv = ["hygrep", "model"]
+    stdout = io.StringIO()
+    with redirect_stdout(stdout), contextlib.suppress(SystemExit):
+        cli.main()
+
+    out = stdout.getvalue()
+    # Should show model status (installed or not)
+    assert "model" in out.lower() or "nomic" in out.lower() or "✓" in out or "!" in out
+
+    print("Model command: PASS")
+
+
 if __name__ == "__main__":
     print("Running CLI tests...\n")
     test_exit_codes()
@@ -374,4 +473,7 @@ if __name__ == "__main__":
     test_status_command()
     test_build_command()
     test_clean_command()
+    test_list_command()
+    test_clean_recursive()
+    test_model_command()
     print("\nAll CLI tests passed!")

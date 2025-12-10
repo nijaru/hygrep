@@ -63,7 +63,9 @@ Models are downloaded from HuggingFace on first use (~40MB).
 hhg build [path]                # Build/update index (required first)
 hhg "query" [path]              # Semantic search
 hhg status [path]               # Check index status
+hhg list [path]                 # List all indexes under path
 hhg clean [path]                # Delete index
+hhg clean [path] -r             # Delete index and all sub-indexes
 
 # Options
 hhg -n 5 "error handling" .     # Limit results
@@ -72,9 +74,9 @@ hhg -l "config" .               # List matching files only
 hhg -t py,js "api" .            # Filter by file type
 hhg --exclude "tests/*" "fn" .  # Exclude patterns
 
-# Model management
-hhg model                       # Check model status
-hhg model install               # Download/reinstall models
+# Model
+hhg model                       # Check if model is installed
+hhg model install               # Download model (auto-downloads on first use)
 ```
 
 **Note:** Options must come before positional arguments.
