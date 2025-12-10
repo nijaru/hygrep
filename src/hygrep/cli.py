@@ -28,6 +28,18 @@ EXIT_ERROR = 2
 # Index directory
 INDEX_DIR = ".hhg"
 
+
+def _check_omendb() -> bool:
+    """Check if omendb is installed, print error if not."""
+    from .semantic import HAS_OMENDB
+
+    if not HAS_OMENDB:
+        err_console.print("[red]Error:[/] omendb not installed")
+        err_console.print("[dim]Install with: pip install hygrep[/]")
+        return False
+    return True
+
+
 app = typer.Typer(
     name="hhg",
     help="Semantic code search",
@@ -67,42 +79,62 @@ def build_index(root: Path, quiet: bool = False) -> None:
 
     root = root.resolve()
 
-    if quiet:
-        # Quiet mode: no progress display
-        files = scan(str(root), ".", include_hidden=False)
-        if not files:
+    try:
+        if quiet:
+            # Quiet mode: no progress display
+            files = scan(str(root), ".", include_hidden=False)
+            if not files:
+                return
+            index = SemanticIndex(root)
+            stats = index.index(files)
+            if stats.get("errors", 0) > 0:
+                err_console.print(f"[yellow]Warning:[/] {stats['errors']} files failed to index")
             return
+
+        # Interactive mode: show spinner for scanning
+        with Status("Scanning files...", console=err_console):
+            t0 = time.perf_counter()
+            files = scan(str(root), ".", include_hidden=False)
+            scan_time = time.perf_counter() - t0
+
+        if not files:
+            err_console.print("[yellow]No files found to index[/]")
+            return
+
+        err_console.print(f"[dim]Found {len(files)} files ({scan_time:.1f}s)[/]")
+
+        # Phase 2: Extract and embed
         index = SemanticIndex(root)
-        index.index(files)
-        return
 
-    # Interactive mode: show spinner for scanning
-    with Status("Scanning files...", console=err_console):
-        t0 = time.perf_counter()
-        files = scan(str(root), ".", include_hidden=False)
-        scan_time = time.perf_counter() - t0
+        with Status("Indexing...", console=err_console):
+            t0 = time.perf_counter()
+            stats = index.index(files)
+            index_time = time.perf_counter() - t0
 
-    if not files:
-        err_console.print("[yellow]No files found to index[/]")
-        return
+        # Summary
+        err_console.print(
+            f"[green]✓[/] Indexed {stats['blocks']} blocks "
+            f"from {stats['files']} files ({index_time:.1f}s)"
+        )
+        if stats["skipped"]:
+            err_console.print(f"[dim]  Skipped {stats['skipped']} unchanged files[/]")
+        if stats.get("errors", 0) > 0:
+            err_console.print(f"[yellow]Warning:[/] {stats['errors']} files failed to index")
 
-    err_console.print(f"[dim]Found {len(files)} files ({scan_time:.1f}s)[/]")
-
-    # Phase 2: Extract and embed
-    index = SemanticIndex(root)
-
-    with Status("Indexing...", console=err_console):
-        t0 = time.perf_counter()
-        stats = index.index(files)
-        index_time = time.perf_counter() - t0
-
-    # Summary
-    err_console.print(
-        f"[green]✓[/] Indexed {stats['blocks']} blocks "
-        f"from {stats['files']} files ({index_time:.1f}s)"
-    )
-    if stats["skipped"]:
-        err_console.print(f"[dim]  Skipped {stats['skipped']} unchanged files[/]")
+    except RuntimeError as e:
+        # Model loading errors from embedder
+        err_console.print(f"[red]Error:[/] {e}")
+        raise typer.Exit(EXIT_ERROR)
+    except PermissionError as e:
+        err_console.print(f"[red]Error:[/] Permission denied: {e.filename}")
+        err_console.print("[dim]Check directory permissions[/]")
+        raise typer.Exit(EXIT_ERROR)
+    except OSError as e:
+        if "No space left" in str(e) or e.errno == 28:
+            err_console.print("[red]Error:[/] No disk space left")
+        else:
+            err_console.print(f"[red]Error:[/] {e}")
+        raise typer.Exit(EXIT_ERROR)
 
 
 def semantic_search(
@@ -391,12 +423,7 @@ def search(
         raise typer.Exit(EXIT_ERROR)
 
     # Semantic search
-    # Check omendb is available
-    from .semantic import HAS_OMENDB
-
-    if not HAS_OMENDB:
-        err_console.print("[red]Error:[/] omendb not installed (required for semantic search)")
-        err_console.print("Upgrade with: uv tool upgrade hygrep")
+    if not _check_omendb():
         raise typer.Exit(EXIT_ERROR)
 
     # Walk up to find existing index, or determine where to create one
@@ -471,11 +498,9 @@ def search(
 def status(path: Path = typer.Argument(Path("."), help="Directory")):
     """Show index status."""
     from .scanner import scan
-    from .semantic import HAS_OMENDB, SemanticIndex
+    from .semantic import SemanticIndex
 
-    if not HAS_OMENDB:
-        err_console.print("[red]Error:[/] omendb not installed")
-        err_console.print("Upgrade with: uv tool upgrade hygrep")
+    if not _check_omendb():
         raise typer.Exit(EXIT_ERROR)
 
     path = path.resolve()
@@ -525,11 +550,9 @@ def build(
     import shutil
 
     from .scanner import scan
-    from .semantic import HAS_OMENDB, SemanticIndex, find_parent_index, find_subdir_indexes
+    from .semantic import SemanticIndex, find_parent_index, find_subdir_indexes
 
-    if not HAS_OMENDB:
-        err_console.print("[red]Error:[/] omendb not installed")
-        err_console.print("Upgrade with: uv tool upgrade hygrep")
+    if not _check_omendb():
         raise typer.Exit(EXIT_ERROR)
 
     path = path.resolve()
@@ -623,11 +646,9 @@ def build(
 @app.command(name="list")
 def list_indexes(path: Path = typer.Argument(Path("."), help="Directory to search")):
     """List all indexes under a directory."""
-    from .semantic import HAS_OMENDB, SemanticIndex, find_subdir_indexes
+    from .semantic import SemanticIndex, find_subdir_indexes
 
-    if not HAS_OMENDB:
-        err_console.print("[red]Error:[/] omendb not installed")
-        err_console.print("Upgrade with: uv tool upgrade hygrep")
+    if not _check_omendb():
         raise typer.Exit(EXIT_ERROR)
 
     path = path.resolve()
@@ -661,11 +682,9 @@ def clean(
     """Delete index."""
     import shutil
 
-    from .semantic import HAS_OMENDB, SemanticIndex, find_subdir_indexes
+    from .semantic import SemanticIndex, find_subdir_indexes
 
-    if not HAS_OMENDB:
-        err_console.print("[red]Error:[/] omendb not installed")
-        err_console.print("Upgrade with: uv tool upgrade hygrep")
+    if not _check_omendb():
         raise typer.Exit(EXIT_ERROR)
 
     path = path.resolve()
