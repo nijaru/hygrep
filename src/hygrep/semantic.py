@@ -332,8 +332,13 @@ class SemanticIndex:
                     )
 
                 # Wait for previous store to complete before submitting next
+                # Use timeout loop to release GIL periodically for spinner thread
                 if pending_future is not None:
-                    pending_future.result()
+                    while not pending_future.done():
+                        try:
+                            pending_future.result(timeout=0.1)
+                        except TimeoutError:
+                            pass
 
                 # Submit store to background thread
                 pending_future = executor.submit(store_batch, items)
@@ -355,13 +360,21 @@ class SemanticIndex:
                 if manifest_changed:
                     # Wait for store to complete before saving manifest
                     if pending_future is not None:
-                        pending_future.result()
+                        while not pending_future.done():
+                            try:
+                                pending_future.result(timeout=0.1)
+                            except TimeoutError:
+                                pass
                         pending_future = None
                     self._save_manifest(manifest)
 
             # Wait for final store
             if pending_future is not None:
-                pending_future.result()
+                while not pending_future.done():
+                    try:
+                        pending_future.result(timeout=0.1)
+                    except TimeoutError:
+                        pass
 
         # Save any remaining files (edge case: last batch)
         for rel_path in files_to_update:
