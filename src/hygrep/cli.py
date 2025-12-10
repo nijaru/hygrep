@@ -214,7 +214,7 @@ def print_results(
     files_only: bool = False,
     compact: bool = False,
     show_content: bool = True,
-    root: Path = None,
+    root: Path | None = None,
 ) -> None:
     """Print search results."""
     # Convert to relative paths
