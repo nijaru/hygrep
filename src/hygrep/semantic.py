@@ -233,7 +233,6 @@ class SemanticIndex:
         Returns:
             Stats dict with counts.
         """
-        from concurrent.futures import ThreadPoolExecutor
 
         db = self._ensure_db()
         manifest = self._load_manifest()
@@ -290,91 +289,51 @@ class SemanticIndex:
         if not all_blocks:
             return stats
 
-        # Pipeline: embed in main thread, store in background thread
-        # ONNX releases GIL during inference, allowing overlap with DB writes
+        # Embed and store in batches, saving manifest incrementally for resumability
         total = len(all_blocks)
         saved_files: set[str] = set()
 
-        def store_batch(items: list[dict]) -> None:
-            """Store items in DB (runs in background thread)."""
+        for i in range(0, total, batch_size):
+            batch = all_blocks[i : i + batch_size]
+            texts = [b["text"] for b in batch]
+
+            if on_progress:
+                on_progress(i, total, f"Embedding {len(batch)} blocks...")
+
+            # Generate embeddings
+            embeddings = self.embedder.embed(texts)
+
+            # Prepare and store items
+            items = [
+                {
+                    "id": block_info["id"],
+                    "vector": embeddings[j].tolist(),
+                    "text": block_info["text"],
+                    "metadata": {
+                        "file": block_info["file"],
+                        "type": block_info["block"]["type"],
+                        "name": block_info["block"]["name"],
+                        "start_line": block_info["block"]["start_line"],
+                        "end_line": block_info["block"]["end_line"],
+                        "content": block_info["block"]["content"],
+                    },
+                }
+                for j, block_info in enumerate(batch)
+            ]
             db.set(items)
+            stats["blocks"] += len(batch)
 
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            pending_future = None
+            # Save manifest for completed files (enables resume on interrupt)
+            processed_up_to = i + batch_size
+            manifest_changed = False
+            for rel_path, (start, end) in file_block_ranges.items():
+                if rel_path not in saved_files and end <= processed_up_to:
+                    manifest["files"][rel_path] = files_to_update[rel_path]
+                    saved_files.add(rel_path)
+                    manifest_changed = True
 
-            for i in range(0, total, batch_size):
-                batch = all_blocks[i : i + batch_size]
-                texts = [b["text"] for b in batch]
-
-                if on_progress:
-                    on_progress(i, total, f"Embedding {len(batch)} blocks...")
-
-                # Generate embeddings
-                embeddings = self.embedder.embed(texts)
-
-                # Prepare items for storage
-                items = []
-                for j, block_info in enumerate(batch):
-                    items.append(
-                        {
-                            "id": block_info["id"],
-                            "vector": embeddings[j].tolist(),
-                            "text": block_info["text"],  # Enable hybrid search
-                            "metadata": {
-                                "file": block_info["file"],
-                                "type": block_info["block"]["type"],
-                                "name": block_info["block"]["name"],
-                                "start_line": block_info["block"]["start_line"],
-                                "end_line": block_info["block"]["end_line"],
-                                "content": block_info["block"]["content"],
-                            },
-                        }
-                    )
-
-                # Wait for previous store to complete before submitting next
-                # Use timeout loop to release GIL periodically for spinner thread
-                if pending_future is not None:
-                    while not pending_future.done():
-                        try:
-                            pending_future.result(timeout=0.1)
-                        except TimeoutError:
-                            pass
-
-                # Submit store to background thread
-                pending_future = executor.submit(store_batch, items)
-                stats["blocks"] += len(batch)
-
-                # Save manifest for files that are now complete
-                # (all their blocks have been submitted for storage)
-                processed_up_to = i + batch_size
-                manifest_changed = False
-                for rel_path, (start, end) in file_block_ranges.items():
-                    if rel_path in saved_files:
-                        continue
-                    if end <= processed_up_to:
-                        # This file's blocks are all submitted
-                        manifest["files"][rel_path] = files_to_update[rel_path]
-                        saved_files.add(rel_path)
-                        manifest_changed = True
-
-                if manifest_changed:
-                    # Wait for store to complete before saving manifest
-                    if pending_future is not None:
-                        while not pending_future.done():
-                            try:
-                                pending_future.result(timeout=0.1)
-                            except TimeoutError:
-                                pass
-                        pending_future = None
-                    self._save_manifest(manifest)
-
-            # Wait for final store
-            if pending_future is not None:
-                while not pending_future.done():
-                    try:
-                        pending_future.result(timeout=0.1)
-                    except TimeoutError:
-                        pass
+            if manifest_changed:
+                self._save_manifest(manifest)
 
         # Save any remaining files (edge case: last batch)
         for rel_path in files_to_update:
