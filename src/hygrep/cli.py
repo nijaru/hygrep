@@ -29,17 +29,6 @@ EXIT_ERROR = 2
 INDEX_DIR = ".hhg"
 
 
-def _check_omendb() -> bool:
-    """Check if omendb is installed, print error if not."""
-    from .semantic import HAS_OMENDB
-
-    if not HAS_OMENDB:
-        err_console.print("[red]Error:[/] omendb not installed")
-        err_console.print("[dim]Install with: pip install hygrep[/]")
-        return False
-    return True
-
-
 app = typer.Typer(
     name="hhg",
     help="Semantic code search",
@@ -422,10 +411,6 @@ def search(
         err_console.print(f"[red]Error:[/] Path does not exist: {path}")
         raise typer.Exit(EXIT_ERROR)
 
-    # Semantic search
-    if not _check_omendb():
-        raise typer.Exit(EXIT_ERROR)
-
     # Walk up to find existing index, or determine where to create one
     index_root, existing_index = find_index(path)
     search_path = path  # May be a subdir of index_root
@@ -500,9 +485,6 @@ def status(path: Path = typer.Argument(Path("."), help="Directory")):
     from .scanner import scan
     from .semantic import SemanticIndex
 
-    if not _check_omendb():
-        raise typer.Exit(EXIT_ERROR)
-
     path = path.resolve()
 
     if not index_exists(path):
@@ -551,9 +533,6 @@ def build(
 
     from .scanner import scan
     from .semantic import SemanticIndex, find_parent_index, find_subdir_indexes
-
-    if not _check_omendb():
-        raise typer.Exit(EXIT_ERROR)
 
     path = path.resolve()
 
@@ -648,9 +627,6 @@ def list_indexes(path: Path = typer.Argument(Path("."), help="Directory to searc
     """List all indexes under a directory."""
     from .semantic import SemanticIndex, find_subdir_indexes
 
-    if not _check_omendb():
-        raise typer.Exit(EXIT_ERROR)
-
     path = path.resolve()
     indexes = find_subdir_indexes(path, include_root=True)
 
@@ -683,9 +659,6 @@ def clean(
     import shutil
 
     from .semantic import SemanticIndex, find_subdir_indexes
-
-    if not _check_omendb():
-        raise typer.Exit(EXIT_ERROR)
 
     path = path.resolve()
     deleted_count = 0

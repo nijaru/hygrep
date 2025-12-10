@@ -6,17 +6,10 @@ import os
 from collections.abc import Callable
 from pathlib import Path
 
+import omendb
+
 from .embedder import DIMENSIONS, get_embedder
 from .extractor import ContextExtractor
-
-# Try to import omendb
-try:
-    import omendb
-
-    HAS_OMENDB = True
-except ImportError:
-    HAS_OMENDB = False
-
 
 INDEX_DIR = ".hhg"
 VECTORS_DIR = "vectors"
@@ -126,11 +119,6 @@ class SemanticIndex:
                          If None, returns all results.
             cache_dir: Optional cache directory for embeddings model.
         """
-        if not HAS_OMENDB:
-            raise ImportError(
-                "omendb is required for semantic search. Install with: pip install omendb"
-            )
-
         self.root = Path(root).resolve()
         self.index_dir = self.root / INDEX_DIR
         self.vectors_path = str(self.index_dir / VECTORS_DIR)
