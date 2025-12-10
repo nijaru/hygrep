@@ -110,6 +110,10 @@ def build_index(root: Path, quiet: bool = False) -> None:
         if stats.get("errors", 0) > 0:
             err_console.print(f"[yellow]Warning:[/] {stats['errors']} files failed to index")
 
+    except KeyboardInterrupt:
+        # Partial index is preserved - next build will resume
+        err_console.print("\n[yellow]Interrupted:[/] Progress saved, run 'hhg build' to resume")
+        raise typer.Exit(130)
     except RuntimeError as e:
         # Model loading errors from embedder
         err_console.print(f"[red]Error:[/] {e}")

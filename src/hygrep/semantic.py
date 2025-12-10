@@ -233,14 +233,17 @@ class SemanticIndex:
         Returns:
             Stats dict with counts.
         """
+        from concurrent.futures import ThreadPoolExecutor
+
         db = self._ensure_db()
         manifest = self._load_manifest()
 
         stats = {"files": 0, "blocks": 0, "skipped": 0, "errors": 0, "deleted": 0}
 
-        # Collect all code blocks
+        # Collect all code blocks, tracking file boundaries for incremental saves
         all_blocks = []
-        files_to_update = {}  # Track which files we're updating
+        files_to_update = {}  # {rel_path: {"hash": ..., "blocks": [...]}}
+        file_block_ranges = {}  # {rel_path: (start_idx, end_idx)} for manifest saves
 
         for file_path, content in files.items():
             # Convert to relative path for storage
@@ -262,6 +265,7 @@ class SemanticIndex:
             # Extract code blocks (use original path for extraction)
             try:
                 blocks = self.extractor.extract(file_path, query="", content=content)
+                start_idx = len(all_blocks)
                 new_block_ids = []
                 for block in blocks:
                     # Use relative path in block ID for portability
@@ -276,6 +280,7 @@ class SemanticIndex:
                             "text": f"{block['type']} {block['name']}\n{block['content']}",
                         }
                     )
+                file_block_ranges[rel_path] = (start_idx, len(all_blocks))
                 files_to_update[rel_path] = {"hash": file_hash, "blocks": new_block_ids}
                 stats["files"] += 1
             except Exception:
@@ -285,48 +290,88 @@ class SemanticIndex:
         if not all_blocks:
             return stats
 
-        # Batch embed and store
+        # Pipeline: embed in main thread, store in background thread
+        # ONNX releases GIL during inference, allowing overlap with DB writes
         total = len(all_blocks)
-        for i in range(0, total, batch_size):
-            batch = all_blocks[i : i + batch_size]
-            texts = [b["text"] for b in batch]
+        saved_files: set[str] = set()
 
-            if on_progress:
-                on_progress(i, total, f"Embedding {len(batch)} blocks...")
-
-            # Generate embeddings
-            embeddings = self.embedder.embed(texts)
-
-            # Store in omendb with text for hybrid search
-            items = []
-            for j, block_info in enumerate(batch):
-                items.append(
-                    {
-                        "id": block_info["id"],
-                        "vector": embeddings[j].tolist(),
-                        "text": block_info["text"],  # Enable hybrid search
-                        "metadata": {
-                            "file": block_info["file"],
-                            "type": block_info["block"]["type"],
-                            "name": block_info["block"]["name"],
-                            "start_line": block_info["block"]["start_line"],
-                            "end_line": block_info["block"]["end_line"],
-                            "content": block_info["block"]["content"],
-                        },
-                    }
-                )
-
+        def store_batch(items: list[dict]) -> None:
+            """Store items in DB (runs in background thread)."""
             db.set(items)
-            stats["blocks"] += len(batch)
 
-        # Update manifest with new file entries
-        for file_path, file_info in files_to_update.items():
-            manifest["files"][file_path] = file_info
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            pending_future = None
+
+            for i in range(0, total, batch_size):
+                batch = all_blocks[i : i + batch_size]
+                texts = [b["text"] for b in batch]
+
+                if on_progress:
+                    on_progress(i, total, f"Embedding {len(batch)} blocks...")
+
+                # Generate embeddings (releases GIL during ONNX inference)
+                embeddings = self.embedder.embed(texts)
+
+                # Prepare items for storage
+                items = []
+                for j, block_info in enumerate(batch):
+                    items.append(
+                        {
+                            "id": block_info["id"],
+                            "vector": embeddings[j].tolist(),
+                            "text": block_info["text"],  # Enable hybrid search
+                            "metadata": {
+                                "file": block_info["file"],
+                                "type": block_info["block"]["type"],
+                                "name": block_info["block"]["name"],
+                                "start_line": block_info["block"]["start_line"],
+                                "end_line": block_info["block"]["end_line"],
+                                "content": block_info["block"]["content"],
+                            },
+                        }
+                    )
+
+                # Wait for previous store to complete before submitting next
+                if pending_future is not None:
+                    pending_future.result()
+
+                # Submit store to background thread
+                pending_future = executor.submit(store_batch, items)
+                stats["blocks"] += len(batch)
+
+                # Save manifest for files that are now complete
+                # (all their blocks have been submitted for storage)
+                processed_up_to = i + batch_size
+                manifest_changed = False
+                for rel_path, (start, end) in file_block_ranges.items():
+                    if rel_path in saved_files:
+                        continue
+                    if end <= processed_up_to:
+                        # This file's blocks are all submitted
+                        manifest["files"][rel_path] = files_to_update[rel_path]
+                        saved_files.add(rel_path)
+                        manifest_changed = True
+
+                if manifest_changed:
+                    # Wait for store to complete before saving manifest
+                    if pending_future is not None:
+                        pending_future.result()
+                        pending_future = None
+                    self._save_manifest(manifest)
+
+            # Wait for final store
+            if pending_future is not None:
+                pending_future.result()
+
+        # Save any remaining files (edge case: last batch)
+        for rel_path in files_to_update:
+            if rel_path not in saved_files:
+                manifest["files"][rel_path] = files_to_update[rel_path]
+        self._save_manifest(manifest)
 
         if on_progress:
             on_progress(total, total, "Done")
 
-        self._save_manifest(manifest)
         return stats
 
     def search(self, query: str, k: int = 10) -> list[dict]:
