@@ -103,7 +103,12 @@ def find_subdir_indexes(path: Path, include_root: bool = False) -> list[Path]:
 
 
 class SemanticIndex:
-    """Manages semantic search index using omendb."""
+    """Manages semantic search index using omendb.
+
+    Can be used as a context manager for automatic cleanup:
+        with SemanticIndex(path) as index:
+            index.search(query)
+    """
 
     def __init__(
         self,
@@ -139,6 +144,14 @@ class SemanticIndex:
         self.extractor = ContextExtractor()
 
         self._db: "omendb.Database | None" = None
+
+    def __enter__(self) -> "SemanticIndex":
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Context manager exit - ensures db is closed."""
+        self.close()
 
     def _to_relative(self, abs_path: str) -> str:
         """Convert absolute path to relative (for storage)."""
@@ -258,6 +271,7 @@ class SemanticIndex:
             old_blocks = file_entry.get("blocks", []) if isinstance(file_entry, dict) else []
             if old_blocks:
                 db.delete(old_blocks)
+                db.flush()
                 stats["deleted"] += len(old_blocks)
 
             # Extract code blocks (use original path for extraction)
@@ -320,6 +334,7 @@ class SemanticIndex:
                 for j, block_info in enumerate(batch)
             ]
             db.set(items)
+            db.flush()
             stats["blocks"] += len(batch)
 
             # Save manifest for completed files (enables resume on interrupt)
@@ -496,6 +511,7 @@ class SemanticIndex:
                     db.delete(old_blocks)
                     deleted_count += len(old_blocks)
                 manifest["files"].pop(f, None)
+            db.flush()
             self._save_manifest(manifest)
 
         # Re-index changed files (index() handles deleting old vectors)
@@ -555,65 +571,65 @@ class SemanticIndex:
         subdir_manifest = json.loads(subdir_manifest_path.read_text())
         subdir_files = subdir_manifest.get("files", {})
 
-        # Open subdir database
+        # Open subdir database with context manager for proper cleanup
         subdir_vectors_path = str(subdir_index_path / VECTORS_DIR)
         try:
-            subdir_db = omendb.open(subdir_vectors_path, dimensions=DIMENSIONS)
+            with omendb.open(subdir_vectors_path, dimensions=DIMENSIONS) as subdir_db:
+                stats = {"merged": 0, "files": 0, "skipped": 0}
+
+                # Process each file in subdir manifest
+                for rel_path, file_info in subdir_files.items():
+                    if not isinstance(file_info, dict):
+                        continue
+
+                    # Translate path: subdir-relative → parent-relative
+                    parent_rel_path = f"{prefix}/{rel_path}"
+
+                    # Skip if already in parent manifest
+                    if parent_rel_path in manifest.get("files", {}):
+                        stats["skipped"] += 1
+                        continue
+
+                    block_ids = file_info.get("blocks", [])
+                    new_block_ids = []
+                    items_to_insert = []
+
+                    for block_id in block_ids:
+                        # Get vector from subdir db
+                        item = subdir_db.get(block_id)
+                        if item is None:
+                            continue
+
+                        # Translate block ID and metadata
+                        new_id = f"{prefix}/{block_id}"
+                        metadata = item.get("metadata", {})
+                        if "file" in metadata:
+                            metadata["file"] = f"{prefix}/{metadata['file']}"
+
+                        items_to_insert.append(
+                            {
+                                "id": new_id,
+                                "vector": item["vector"],
+                                "metadata": metadata,
+                            }
+                        )
+                        new_block_ids.append(new_id)
+
+                    # Batch insert all blocks for this file
+                    if items_to_insert:
+                        db.set(items_to_insert)
+                        stats["merged"] += len(items_to_insert)
+
+                    # Update parent manifest
+                    if new_block_ids:
+                        manifest["files"][parent_rel_path] = {
+                            "hash": file_info.get("hash", ""),
+                            "blocks": new_block_ids,
+                        }
+                        stats["files"] += 1
+
+                db.flush()
+                self._save_manifest(manifest)
+                return stats
         except Exception as e:
             return {"merged": 0, "error": f"cannot open subdir db: {e}"}
-
-        stats = {"merged": 0, "files": 0, "skipped": 0}
-
-        # Process each file in subdir manifest
-        for rel_path, file_info in subdir_files.items():
-            if not isinstance(file_info, dict):
-                continue
-
-            # Translate path: subdir-relative → parent-relative
-            parent_rel_path = f"{prefix}/{rel_path}"
-
-            # Skip if already in parent manifest
-            if parent_rel_path in manifest.get("files", {}):
-                stats["skipped"] += 1
-                continue
-
-            block_ids = file_info.get("blocks", [])
-            new_block_ids = []
-            items_to_insert = []
-
-            for block_id in block_ids:
-                # Get vector from subdir db
-                item = subdir_db.get(block_id)
-                if item is None:
-                    continue
-
-                # Translate block ID and metadata
-                new_id = f"{prefix}/{block_id}"
-                metadata = item.get("metadata", {})
-                if "file" in metadata:
-                    metadata["file"] = f"{prefix}/{metadata['file']}"
-
-                items_to_insert.append(
-                    {
-                        "id": new_id,
-                        "vector": item["vector"],
-                        "metadata": metadata,
-                    }
-                )
-                new_block_ids.append(new_id)
-
-            # Batch insert all blocks for this file
-            if items_to_insert:
-                db.set(items_to_insert)
-                stats["merged"] += len(items_to_insert)
-
-            # Update parent manifest
-            if new_block_ids:
-                manifest["files"][parent_rel_path] = {
-                    "hash": file_info.get("hash", ""),
-                    "blocks": new_block_ids,
-                }
-                stats["files"] += 1
-
-        self._save_manifest(manifest)
-        return stats

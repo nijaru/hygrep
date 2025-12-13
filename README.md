@@ -73,13 +73,19 @@ hhg --json "auth" .             # JSON output for scripts/agents
 hhg -l "config" .               # List matching files only
 hhg -t py,js "api" .            # Filter by file type
 hhg --exclude "tests/*" "fn" .  # Exclude patterns
+hhg --exclude "*.md" "api" .   # Code only (exclude docs)
 
 # Model
 hhg model                       # Check if model is installed
 hhg model install               # Download model (auto-downloads on first use)
 ```
 
-**Note:** Options must come before positional arguments.
+**Note:** Options go before positional args, or use `--` separator:
+
+```bash
+hhg --exclude "*.md" "api" .   # Options first
+hhg "api" . -- --exclude "*.md" # Or use -- separator
+```
 
 ## Output
 
