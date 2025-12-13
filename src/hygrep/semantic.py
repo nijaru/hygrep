@@ -14,7 +14,7 @@ from .extractor import ContextExtractor
 INDEX_DIR = ".hhg"
 VECTORS_DIR = "vectors"
 MANIFEST_FILE = "manifest.json"
-MANIFEST_VERSION = 4  # v4: hybrid search with text field
+MANIFEST_VERSION = 5  # v5: jina-code-int8 model (768 dims)
 
 
 def find_index_root(search_path: Path) -> tuple[Path, Path | None]:
@@ -185,8 +185,8 @@ class SemanticIndex:
     def _load_manifest(self) -> dict:
         """Load manifest of indexed files.
 
-        Manifest format v3:
-            {"version": 3, "files": {"rel/path": {"hash": "abc123", "blocks": ["id1", "id2"]}}}
+        Manifest format v5:
+            {"version": 5, "files": {"rel/path": {"hash": "abc123", "blocks": ["id1", "id2"]}}}
 
         Migrates from older formats on load.
         """
@@ -197,6 +197,14 @@ class SemanticIndex:
             data = json.loads(content)
             version = data.get("version", 1)
             files = data.get("files", {})
+
+            # v4 -> v5: embedding model changed (256 -> 768 dims)
+            # Requires full rebuild - old embeddings are incompatible
+            if version < 5 and files:
+                raise RuntimeError(
+                    "Index was built with an older embedding model.\n"
+                    "Rebuild with: hhg build --force"
+                )
 
             # Migrate v1 -> v2: hash string -> dict
             if version < 2:

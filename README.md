@@ -55,7 +55,7 @@ uv tool install hygrep --python 3.13
 pipx install hygrep
 ```
 
-Models are downloaded from HuggingFace on first use (~40MB).
+The embedding model ([jina-code-int8](https://huggingface.co/nijaru/jina-code-int8)) downloads on first use (~154MB).
 
 ## Usage
 

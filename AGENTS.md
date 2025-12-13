@@ -35,7 +35,7 @@ Index hierarchy:
 | ---------- | --------------------------------------------------------------- |
 | Scanner    | `src/scanner/_scanner.mojo` (Python extension) + `c_regex.mojo` |
 | Extraction | `src/hygrep/extractor.py` (Tree-sitter AST)                     |
-| Embeddings | `src/hygrep/embedder.py` (ModernBERT ONNX)                      |
+| Embeddings | `src/hygrep/embedder.py` (jina-code-int8 ONNX)                  |
 | Vector DB  | `src/hygrep/semantic.py` (omendb wrapper)                       |
 
 ## Project Structure
@@ -48,7 +48,7 @@ src/
 ├── hygrep/
 │   ├── __init__.py     # Package version
 │   ├── cli.py          # CLI entry point
-│   ├── embedder.py     # ModernBERT ONNX embeddings
+│   ├── embedder.py     # jina-code-int8 ONNX embeddings
 │   ├── semantic.py     # SemanticIndex (omendb wrapper)
 │   ├── extractor.py    # Tree-sitter extraction
 │   └── _scanner.so     # Built extension (gitignored)
@@ -65,8 +65,8 @@ hatch_build.py          # Platform wheel hook
 | Python       | >=3.11, <3.14         | CLI + inference            |
 | ONNX Runtime | >=1.16                | Model execution            |
 | Tree-sitter  | >=0.24                | AST parsing (22 languages) |
-| omendb       | >=0.0.8               | Hybrid vector + BM25 DB    |
-| Embeddings   | ModernBERT-embed-base | INT8, 256 dims, ~40MB      |
+| omendb       | >=0.0.10              | Hybrid vector + BM25 DB    |
+| Embeddings   | jina-code-int8        | INT8, 768 dims, ~154MB     |
 
 ## Mojo Patterns
 

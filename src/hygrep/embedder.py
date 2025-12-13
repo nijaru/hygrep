@@ -11,18 +11,14 @@ from tokenizers import Tokenizer
 # Suppress ONNX Runtime warnings
 ort.set_default_logger_severity(3)
 
-# ModernBERT-embed-base: code-aware, Matryoshka dims
-# INT8 quantized for speed and size (~150MB)
-MODEL_REPO = "nomic-ai/modernbert-embed-base"
-MODEL_FILE = "onnx/model_int8.onnx"
+# jina-embeddings-v2-base-code: trained on 31 programming languages
+# INT8 quantized (~154MB)
+MODEL_REPO = "nijaru/jina-code-int8"
+MODEL_FILE = "model_int8.onnx"
 TOKENIZER_FILE = "tokenizer.json"
-DIMENSIONS = 256  # Matryoshka: 768 full, 256 reduced (3x smaller index)
-MAX_LENGTH = 512  # Truncate to 512 tokens (enough for most functions, 16x faster than 8192)
-BATCH_SIZE = 32  # Larger batches for better throughput (benchmarked: 32 is 15% faster than 16)
-
-# Prefixes required by ModernBERT-embed
-QUERY_PREFIX = "search_query: "
-DOCUMENT_PREFIX = "search_document: "
+DIMENSIONS = 768
+MAX_LENGTH = 512  # jina supports 8K but 512 is enough for code blocks
+BATCH_SIZE = 32
 
 
 # Global embedder instance for caching across calls (useful for library usage)
@@ -138,9 +134,6 @@ class Embedder:
             sum_mask = np.sum(mask_expanded, axis=1)
             embeddings = sum_embeddings / np.maximum(sum_mask, 1e-9)
 
-        # Truncate to Matryoshka dimensions
-        embeddings = embeddings[:, :DIMENSIONS]
-
         # L2 normalize
         norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
         embeddings = embeddings / np.maximum(norms, 1e-9)
@@ -159,13 +152,10 @@ class Embedder:
         if not texts:
             return np.array([], dtype=np.float32).reshape(0, DIMENSIONS)
 
-        # Add document prefix for ModernBERT
-        prefixed = [DOCUMENT_PREFIX + t for t in texts]
-
         # Process in batches to avoid memory issues and reduce padding waste
         all_embeddings = []
-        for i in range(0, len(prefixed), BATCH_SIZE):
-            batch = prefixed[i : i + BATCH_SIZE]
+        for i in range(0, len(texts), BATCH_SIZE):
+            batch = texts[i : i + BATCH_SIZE]
             all_embeddings.append(self._embed_batch(batch))
 
         return np.vstack(all_embeddings)
@@ -184,9 +174,7 @@ class Embedder:
         if use_cache and text in self._query_cache:
             return self._query_cache[text]
 
-        # Add query prefix for ModernBERT
-        prefixed = QUERY_PREFIX + text
-        embedding = self._embed_batch([prefixed])[0]
+        embedding = self._embed_batch([text])[0]
 
         # Cache result (limit cache size to avoid memory bloat)
         if use_cache:
