@@ -2,8 +2,8 @@
 
 | Metric    | Value                         | Updated    |
 | --------- | ----------------------------- | ---------- |
-| Phase     | 17 (Post-rename)              | 2025-12-16 |
-| Version   | 0.0.17 (PyPI)                 | 2025-12-16 |
+| Phase     | 18 (CPU-only)                 | 2025-12-16 |
+| Version   | 0.0.18 (PyPI)                 | 2025-12-16 |
 | Package   | `hhg` (renamed from `hygrep`) | 2025-12-16 |
 | Branch    | main                          | 2025-12-16 |
 | PyPI      | https://pypi.org/project/hhg/ | 2025-12-16 |
@@ -19,12 +19,11 @@
 - **`hhg model`** - shows model and provider status
 - **Manifest v5** - requires rebuild from v4 (dimension change)
 
-## Uncommitted Changes (v0.0.18)
+## v0.0.18 Changes
 
-- Remove `hygrep` CLI entry point (only `hhg` needed)
 - Fix CLI arg ordering (`--exclude` now works after positional args)
 - Add `--code-only` flag to exclude docs (md, txt, rst, adoc)
-- Add 6 new tree-sitter grammars: HTML, CSS, SQL, Julia, HCL/Terraform
+- Add 6 new tree-sitter grammars: HTML, CSS, SQL, Julia, HCL/Terraform (28 total)
 - Remove `doctor` command (redundant with `hhg model`)
 - Simplify embedder to CPU-only (GPU providers not stable)
 
