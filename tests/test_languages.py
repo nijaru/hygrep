@@ -32,6 +32,13 @@ SAMPLES = {
     ".yaml": ("database:\n  host: localhost", []),  # Pairs, no named functions
     ".toml": ('[database]\nhost = "localhost"', []),  # Tables/pairs
     ".json": ('{"name": "test"}', []),  # Pairs, no named functions
+    # New languages (v0.0.18)
+    ".html": ("<div><span>test</span></div>", []),  # Elements, no named functions
+    ".css": (".foo { color: red; }", []),  # Rules, no named functions
+    ".sql": ("SELECT * FROM users; CREATE TABLE foo (id INT);", []),  # Statements
+    ".jl": ("function hello(x) x + 1 end\nstruct Foo x::Int end", ["Foo"]),  # Func name nested
+    ".hcl": ('resource "aws_instance" "web" { ami = "ami-123" }', []),  # Blocks
+    ".tf": ('variable "name" { default = "test" }', []),  # Terraform HCL
 }
 
 

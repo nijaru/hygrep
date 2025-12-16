@@ -7,17 +7,22 @@ import tree_sitter_bash
 import tree_sitter_c
 import tree_sitter_c_sharp
 import tree_sitter_cpp
+import tree_sitter_css
 import tree_sitter_elixir
 import tree_sitter_go
+import tree_sitter_hcl
+import tree_sitter_html
 import tree_sitter_java
 import tree_sitter_javascript
 import tree_sitter_json
+import tree_sitter_julia
 import tree_sitter_kotlin
 import tree_sitter_lua
 import tree_sitter_php
 import tree_sitter_python
 import tree_sitter_ruby
 import tree_sitter_rust
+import tree_sitter_sql
 import tree_sitter_svelte
 import tree_sitter_swift
 import tree_sitter_toml
@@ -50,14 +55,19 @@ LANGUAGE_CAPSULES = {
     ".cc": tree_sitter_cpp.language(),
     ".cs": tree_sitter_c_sharp.language(),
     ".cpp": tree_sitter_cpp.language(),
+    ".css": tree_sitter_css.language(),
     ".cxx": tree_sitter_cpp.language(),
     ".ex": tree_sitter_elixir.language(),
     ".exs": tree_sitter_elixir.language(),
     ".go": tree_sitter_go.language(),
     ".h": tree_sitter_c.language(),
+    ".hcl": tree_sitter_hcl.language(),
     ".hh": tree_sitter_cpp.language(),
     ".hpp": tree_sitter_cpp.language(),
+    ".htm": tree_sitter_html.language(),
+    ".html": tree_sitter_html.language(),
     ".java": tree_sitter_java.language(),
+    ".jl": tree_sitter_julia.language(),
     ".js": tree_sitter_javascript.language(),
     ".json": tree_sitter_json.language(),
     ".jsx": tree_sitter_javascript.language(),
@@ -69,8 +79,10 @@ LANGUAGE_CAPSULES = {
     ".rb": tree_sitter_ruby.language(),
     ".rs": tree_sitter_rust.language(),
     ".sh": tree_sitter_bash.language(),
+    ".sql": tree_sitter_sql.language(),
     ".svelte": tree_sitter_svelte.language(),
     ".swift": tree_sitter_swift.language(),
+    ".tf": tree_sitter_hcl.language(),
     ".toml": tree_sitter_toml.language(),
     ".ts": tree_sitter_typescript.language_typescript(),
     ".tsx": tree_sitter_typescript.language_tsx(),
@@ -180,6 +192,22 @@ QUERIES = {
         (function_declaration) @function
         (struct_declaration) @class
     """,
+    # New languages (v0.0.18)
+    "css": "(rule_set) @rule",
+    "hcl": "(block) @block",
+    "html": """
+        (element) @element
+        (script_element) @script
+        (style_element) @style
+    """,
+    "julia": """
+        (function_definition) @function
+        (struct_definition) @class
+        (module_definition) @class
+    """,
+    "sql": """
+        (statement) @statement
+    """,
 }
 
 
@@ -213,14 +241,19 @@ class ContextExtractor:
             ".cc": "cpp",
             ".cpp": "cpp",
             ".cs": "csharp",
+            ".css": "css",
             ".cxx": "cpp",
             ".ex": "elixir",
             ".exs": "elixir",
             ".go": "go",
             ".h": "c",
+            ".hcl": "hcl",
             ".hh": "cpp",
             ".hpp": "cpp",
+            ".htm": "html",
+            ".html": "html",
             ".java": "java",
+            ".jl": "julia",
             ".js": "javascript",
             ".json": "json",
             ".jsx": "javascript",
@@ -233,8 +266,10 @@ class ContextExtractor:
             ".rb": "ruby",
             ".rs": "rust",
             ".sh": "bash",
+            ".sql": "sql",
             ".svelte": "svelte",
             ".swift": "swift",
+            ".tf": "hcl",
             ".toml": "toml",
             ".ts": "typescript",
             ".tsx": "typescript",

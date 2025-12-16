@@ -8,7 +8,7 @@
 | Branch    | main                          | 2025-12-16 |
 | PyPI      | https://pypi.org/project/hhg/ | 2025-12-16 |
 | CLI       | `hhg`                         | 2025-12-16 |
-| Languages | 22 + prose (md, txt, rst)     | 2025-12-09 |
+| Languages | 28 + prose (md, txt, rst)     | 2025-12-16 |
 | Model     | jina-code-int8 (768 dims)     | 2025-12-16 |
 
 ## v0.0.17 Changes
@@ -26,12 +26,11 @@
 - Remove `hygrep` CLI entry point (only `hhg` needed)
 - Fix CLI arg ordering (`--exclude` now works after positional args)
 - Add `--code-only` flag to exclude docs (md, txt, rst, adoc)
+- Add 6 new tree-sitter grammars: HTML, CSS, SQL, Julia, HCL/Terraform
 
 ## Open Issues
 
-### Medium Priority
-
-1. **More tree-sitter grammars** - evaluate Scala, Haskell, OCaml, R, Julia, etc.
+None currently tracked.
 
 ## Architecture
 
