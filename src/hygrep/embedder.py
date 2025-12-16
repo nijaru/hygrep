@@ -18,7 +18,22 @@ MODEL_FILE = "model_int8.onnx"
 TOKENIZER_FILE = "tokenizer.json"
 DIMENSIONS = 768
 MAX_LENGTH = 512  # jina supports 8K but 512 is enough for code blocks
-BATCH_SIZE = 32
+
+# Execution providers in priority order (first available wins)
+# Install onnxruntime-gpu for CUDA support
+PROVIDER_PRIORITY = [
+    "CUDAExecutionProvider",
+    "CoreMLExecutionProvider",
+    "CPUExecutionProvider",
+]
+
+# Batch sizes tuned per provider (GPU can handle larger batches)
+BATCH_SIZE_BY_PROVIDER = {
+    "CUDAExecutionProvider": 256,
+    "CoreMLExecutionProvider": 128,
+    "CPUExecutionProvider": 32,
+}
+DEFAULT_BATCH_SIZE = 32
 
 
 # Global embedder instance for caching across calls (useful for library usage)
@@ -39,6 +54,15 @@ def get_embedder(cache_dir: str | None = None) -> "Embedder":
         return _global_embedder
 
 
+def _select_providers() -> list[str]:
+    """Select available execution providers in priority order."""
+    available = ort.get_available_providers()
+    selected = [p for p in PROVIDER_PRIORITY if p in available]
+    if not selected:
+        selected = ["CPUExecutionProvider"]
+    return selected
+
+
 class Embedder:
     """Generate text embeddings using ONNX model."""
 
@@ -47,6 +71,20 @@ class Embedder:
         self._session: ort.InferenceSession | None = None
         self._tokenizer: Tokenizer | None = None
         self._query_cache: dict[str, np.ndarray] = {}  # LRU cache for query embeddings
+        self._provider: str = "CPUExecutionProvider"
+        self._batch_size: int = DEFAULT_BATCH_SIZE
+
+    @property
+    def provider(self) -> str:
+        """Return the active execution provider."""
+        self._ensure_loaded()
+        return self._provider
+
+    @property
+    def batch_size(self) -> int:
+        """Return the batch size for this provider."""
+        self._ensure_loaded()
+        return self._batch_size
 
     def _ensure_loaded(self) -> None:
         """Lazy load model and tokenizer."""
@@ -83,16 +121,22 @@ class Embedder:
             ) from e
 
         try:
-            # Load ONNX model
+            # Load ONNX model with best available provider
             opts = ort.SessionOptions()
             opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
             opts.intra_op_num_threads = os.cpu_count() or 4
 
+            providers = _select_providers()
             self._session = ort.InferenceSession(
                 model_path,
                 sess_options=opts,
-                providers=["CPUExecutionProvider"],
+                providers=providers,
             )
+
+            # Record which provider is actually being used
+            active = self._session.get_providers()
+            self._provider = active[0] if active else "CPUExecutionProvider"
+            self._batch_size = BATCH_SIZE_BY_PROVIDER.get(self._provider, DEFAULT_BATCH_SIZE)
 
             # Cache input/output names
             self._input_names = [i.name for i in self._session.get_inputs()]
@@ -152,10 +196,13 @@ class Embedder:
         if not texts:
             return np.array([], dtype=np.float32).reshape(0, DIMENSIONS)
 
+        self._ensure_loaded()
+        batch_size = self._batch_size
+
         # Process in batches to avoid memory issues and reduce padding waste
         all_embeddings = []
-        for i in range(0, len(texts), BATCH_SIZE):
-            batch = texts[i : i + BATCH_SIZE]
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i : i + batch_size]
             all_embeddings.append(self._embed_batch(batch))
 
         return np.vstack(all_embeddings)

@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import multiprocessing
 import os
 from collections.abc import Callable
 from pathlib import Path
@@ -15,6 +16,27 @@ INDEX_DIR = ".hhg"
 VECTORS_DIR = "vectors"
 MANIFEST_FILE = "manifest.json"
 MANIFEST_VERSION = 5  # v5: jina-code-int8 model (768 dims)
+
+
+def _extract_blocks_worker(file_path: str, content: str, rel_path: str) -> list[dict]:
+    """Worker to extract blocks from a single file."""
+    try:
+        extractor = ContextExtractor()
+        blocks = extractor.extract(file_path, query="", content=content)
+        output_blocks = []
+        for block in blocks:
+            block_id = f"{rel_path}:{block['start_line']}:{block['name']}"
+            output_blocks.append(
+                {
+                    "id": block_id,
+                    "file": rel_path,
+                    "block": block,
+                    "text": f"{block['type']} {block['name']}\n{block['content']}",
+                }
+            )
+        return output_blocks
+    except Exception:
+        return []  # Return empty list on error
 
 
 def find_index_root(search_path: Path) -> tuple[Path, Path | None]:
@@ -242,34 +264,20 @@ class SemanticIndex:
         self,
         files: dict[str, str],
         batch_size: int = 128,
+        workers: int = 0,
         on_progress: Callable[[int, int, str], None] | None = None,
     ) -> dict:
-        """Index code files for semantic search.
-
-        Args:
-            files: Dict mapping file paths to content.
-            batch_size: Number of code blocks to embed at once.
-            on_progress: Callback(current, total, message) for progress updates.
-
-        Returns:
-            Stats dict with counts.
-        """
+        """Index code files for semantic search using a parallel extractor."""
         db = self._ensure_db()
         manifest = self._load_manifest()
-
         stats = {"files": 0, "blocks": 0, "skipped": 0, "errors": 0, "deleted": 0}
 
-        # Collect all code blocks, tracking file boundaries for incremental saves
-        all_blocks = []
-        files_to_update = {}  # {rel_path: {"hash": ..., "blocks": [...]}}
-        file_block_ranges = {}  # {rel_path: (start_idx, end_idx)} for manifest saves
-
+        # 1. Identify files that need processing
+        files_to_process = []
         for file_path, content in files.items():
-            # Convert to relative path for storage
             rel_path = self._to_relative(file_path)
             file_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
 
-            # Skip unchanged files (check by relative path)
             file_entry = manifest["files"].get(rel_path, {})
             if isinstance(file_entry, dict) and file_entry.get("hash") == file_hash:
                 stats["skipped"] += 1
@@ -279,41 +287,48 @@ class SemanticIndex:
             old_blocks = file_entry.get("blocks", []) if isinstance(file_entry, dict) else []
             if old_blocks:
                 db.delete(old_blocks)
-                db.flush()
                 stats["deleted"] += len(old_blocks)
 
-            # Extract code blocks (use original path for extraction)
-            try:
-                blocks = self.extractor.extract(file_path, query="", content=content)
-                start_idx = len(all_blocks)
-                new_block_ids = []
-                for block in blocks:
-                    # Use relative path in block ID for portability
-                    block_id = f"{rel_path}:{block['start_line']}:{block['name']}"
-                    new_block_ids.append(block_id)
-                    all_blocks.append(
-                        {
-                            "id": block_id,
-                            "file": rel_path,  # Store relative path
-                            "file_hash": file_hash,
-                            "block": block,
-                            "text": f"{block['type']} {block['name']}\n{block['content']}",
-                        }
-                    )
-                file_block_ranges[rel_path] = (start_idx, len(all_blocks))
-                files_to_update[rel_path] = {"hash": file_hash, "blocks": new_block_ids}
-                stats["files"] += 1
-            except Exception:
-                stats["errors"] += 1
-                continue
+            files_to_process.append({"path": file_path, "content": content, "rel_path": rel_path, "hash": file_hash})
+
+        if not files_to_process:
+            if stats["deleted"] > 0:
+                db.flush()
+            return stats
+        db.flush() # Commit deletions
+
+        # 2. Extract blocks in parallel
+        num_workers = workers if workers > 0 else (os.cpu_count() or 1)
+        all_blocks = []
+        
+        with multiprocessing.Pool(num_workers) as pool:
+            results = pool.starmap(
+                _extract_blocks_worker,
+                [(f["path"], f["content"], f["rel_path"]) for f in files_to_process],
+            )
+
+            for i, file_info in enumerate(files_to_process):
+                extracted_blocks = results[i]
+                if extracted_blocks:
+                    # Associate the file hash with each block for manifest update
+                    for block in extracted_blocks:
+                        block["file_hash"] = file_info["hash"]
+                    all_blocks.extend(extracted_blocks)
+                    stats["files"] += 1
+                else:
+                    # Check if the file had content, implying an extraction error
+                    if file_info["content"]:
+                        stats["errors"] += 1
 
         if not all_blocks:
+            # remove deleted files from manifest
+            for f in files_to_process:
+                manifest["files"].pop(f["rel_path"], None)
+            self._save_manifest(manifest) # Save to record deletions
             return stats
 
-        # Embed and store in batches, saving manifest incrementally for resumability
+        # 3. Embed and store in batches (sequential)
         total = len(all_blocks)
-        saved_files: set[str] = set()
-
         for i in range(0, total, batch_size):
             batch = all_blocks[i : i + batch_size]
             texts = [b["text"] for b in batch]
@@ -321,10 +336,8 @@ class SemanticIndex:
             if on_progress:
                 on_progress(i, total, f"Embedding {len(batch)} blocks...")
 
-            # Generate embeddings
             embeddings = self.embedder.embed(texts)
 
-            # Prepare and store items
             items = [
                 {
                     "id": block_info["id"],
@@ -342,25 +355,24 @@ class SemanticIndex:
                 for j, block_info in enumerate(batch)
             ]
             db.set(items)
-            db.flush()
             stats["blocks"] += len(batch)
+        db.flush()
 
-            # Save manifest for completed files (enables resume on interrupt)
-            processed_up_to = i + batch_size
-            manifest_changed = False
-            for rel_path, (start, end) in file_block_ranges.items():
-                if rel_path not in saved_files and end <= processed_up_to:
-                    manifest["files"][rel_path] = files_to_update[rel_path]
-                    saved_files.add(rel_path)
-                    manifest_changed = True
+        # 4. Update manifest
+        blocks_by_file = {}
+        for block in all_blocks:
+            blocks_by_file.setdefault(block["file"], []).append(block["id"])
 
-            if manifest_changed:
-                self._save_manifest(manifest)
+        for rel_path, block_ids in blocks_by_file.items():
+             file_hash = next((b["file_hash"] for b in all_blocks if b["file"] == rel_path), None)
+             if file_hash:
+                 manifest["files"][rel_path] = {"hash": file_hash, "blocks": block_ids}
 
-        # Save any remaining files (edge case: last batch)
-        for rel_path in files_to_update:
-            if rel_path not in saved_files:
-                manifest["files"][rel_path] = files_to_update[rel_path]
+        # Remove files that now have no blocks
+        for f in files_to_process:
+            if f["rel_path"] not in blocks_by_file:
+                manifest["files"].pop(f["rel_path"], None)
+
         self._save_manifest(manifest)
 
         if on_progress:
@@ -490,12 +502,16 @@ class SemanticIndex:
     def update(
         self,
         files: dict[str, str],
+        batch_size: int = 128,
+        workers: int = 0,
         on_progress: Callable[[int, int, str], None] | None = None,
     ) -> dict:
         """Incremental update - only reindex changed files.
 
         Args:
             files: Dict mapping file paths to content (all files).
+            batch_size: Number of code blocks to embed at once.
+            workers: Number of parallel workers for extraction.
             on_progress: Callback for progress updates.
 
         Returns:
@@ -524,7 +540,12 @@ class SemanticIndex:
 
         # Re-index changed files (index() handles deleting old vectors)
         changed_files = {f: files[f] for f in changed if f in files}
-        stats = self.index(changed_files, on_progress=on_progress)
+        stats = self.index(
+            changed_files,
+            batch_size=batch_size,
+            workers=workers,
+            on_progress=on_progress,
+        )
         stats["deleted"] = stats.get("deleted", 0) + deleted_count
 
         return stats

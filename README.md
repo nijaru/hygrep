@@ -1,9 +1,9 @@
-# hygrep (hhg)
+# hhg (hybrid grep)
 
 **Hybrid file search — semantic + keyword matching**
 
 ```bash
-pip install hygrep
+pip install hhg
 hhg build ./src
 hhg "authentication flow" ./src
 ```
@@ -48,11 +48,11 @@ Use hhg when you want implementations, not mentions.
 Requires Python 3.11-3.13 (onnxruntime lacks 3.14 support).
 
 ```bash
-pip install hygrep
+pip install hhg
 # or
-uv tool install hygrep --python 3.13
+uv tool install hhg
 # or
-pipx install hygrep
+pipx install hhg
 ```
 
 The embedding model ([jina-code-int8](https://huggingface.co/nijaru/jina-code-int8)) downloads on first use (~154MB).

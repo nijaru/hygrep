@@ -192,8 +192,9 @@ def test_files_only():
         # Should have unique files only
         assert len(lines) == len(set(lines)), "Files should be unique"
         assert len(lines) >= 1, f"Should have at least one file, got: {out!r}"
+        expected_files = {"a.py", "b.py"}
         for line in lines:
-            assert line.endswith(".py"), f"Expected .py file, got {line}"
+            assert line in expected_files, f"Unexpected file '{line}' in output"
 
     print("Files only: PASS")
 

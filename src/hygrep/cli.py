@@ -59,7 +59,12 @@ def index_exists(root: Path) -> bool:
     return (index_path / "manifest.json").exists()
 
 
-def build_index(root: Path, quiet: bool = False) -> None:
+def build_index(
+    root: Path,
+    quiet: bool = False,
+    workers: int = 0,
+    batch_size: int = 128,
+) -> None:
     """Build semantic index for directory."""
     from .scanner import scan
     from .semantic import SemanticIndex
@@ -73,7 +78,7 @@ def build_index(root: Path, quiet: bool = False) -> None:
             if not files:
                 return
             index = SemanticIndex(root)
-            stats = index.index(files)
+            stats = index.index(files, workers=workers, batch_size=batch_size)
             if stats.get("errors", 0) > 0:
                 err_console.print(f"[yellow]Warning:[/] {stats['errors']} files failed to index")
             return
@@ -95,7 +100,7 @@ def build_index(root: Path, quiet: bool = False) -> None:
 
         with Status("Indexing...", console=err_console):
             t0 = time.perf_counter()
-            stats = index.index(files)
+            stats = index.index(files, workers=workers, batch_size=batch_size)
             index_time = time.perf_counter() - t0
 
         # Summary
@@ -289,6 +294,8 @@ def search(
     version: bool = typer.Option(False, "-v", "--version", help="Show version"),
     # Hidden options for subcommand passthrough
     recursive: bool = typer.Option(False, "--recursive", "-r", hidden=True),
+    workers: int = typer.Option(0, hidden=True),
+    batch_size: int = typer.Option(128, hidden=True),
 ):
     """Semantic code search.
 
@@ -380,6 +387,14 @@ def search(
             err_console.print("[dim]Running: hhg model[/]")
             model()
             raise typer.Exit()
+
+    elif query == "doctor":
+        if _check_help_flag():
+            console.print("Usage: hhg doctor\n\nCheck setup and suggest optimizations.")
+            raise typer.Exit()
+        err_console.print("[dim]Running: hhg doctor[/]")
+        doctor()
+        raise typer.Exit()
 
     if version:
         console.print(f"hhg {__version__}")
@@ -678,7 +693,7 @@ def model():
     """Show embedding model status."""
     from huggingface_hub import try_to_load_from_cache
 
-    from .embedder import MODEL_FILE, MODEL_REPO, TOKENIZER_FILE
+    from .embedder import MODEL_FILE, MODEL_REPO, TOKENIZER_FILE, get_embedder
 
     model_cached = try_to_load_from_cache(MODEL_REPO, MODEL_FILE)
     tokenizer_cached = try_to_load_from_cache(MODEL_REPO, TOKENIZER_FILE)
@@ -686,6 +701,10 @@ def model():
 
     if is_installed:
         console.print(f"[green]✓[/] Model installed: {MODEL_REPO}")
+        # Show provider and batch size
+        embedder = get_embedder()
+        provider = embedder.provider.replace("ExecutionProvider", "")
+        console.print(f"  Provider: {provider} (batch size: {embedder.batch_size})")
     else:
         console.print(f"[yellow]![/] Model not installed: {MODEL_REPO}")
         console.print("  Run 'hhg model install' to download")
@@ -716,6 +735,68 @@ def model_install():
         err_console.print(f"[red]Error:[/] Failed to download model: {e}")
         err_console.print("[dim]Check network connection and try again[/]")
         raise typer.Exit(EXIT_ERROR)
+
+
+@app.command()
+def doctor():
+    """Check setup and suggest optimizations."""
+    import platform
+    import subprocess
+    import sys
+
+    import onnxruntime as ort
+    from huggingface_hub import try_to_load_from_cache
+
+    from .embedder import MODEL_FILE, MODEL_REPO, TOKENIZER_FILE, get_embedder
+
+    # Check model
+    model_ok = try_to_load_from_cache(MODEL_REPO, MODEL_FILE) is not None
+    tokenizer_ok = try_to_load_from_cache(MODEL_REPO, TOKENIZER_FILE) is not None
+
+    if model_ok and tokenizer_ok:
+        console.print("[green]✓[/] Model installed")
+    else:
+        console.print("[red]✗[/] Model not installed: run [bold]hhg model install[/]")
+
+    # Check provider
+    embedder = get_embedder()
+    provider = embedder.provider
+    provider_name = provider.replace("ExecutionProvider", "")
+    console.print(f"[green]✓[/] Provider: {provider_name} (batch {embedder.batch_size})")
+
+    # Detect hardware and suggest upgrades
+    available = set(ort.get_available_providers())
+    system = platform.system()
+    machine = platform.machine()
+
+    gpu_pkg = None
+
+    if "CUDAExecutionProvider" not in available:
+        try:
+            result = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0 and "GPU" in result.stdout:
+                gpu_pkg = "onnxruntime-gpu"
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+    if gpu_pkg is None and "CoreMLExecutionProvider" not in available:
+        if system == "Darwin" and machine == "arm64":
+            gpu_pkg = "onnxruntime-silicon"
+
+    if gpu_pkg:
+        console.print("[yellow]![/] GPU available but not enabled")
+        console.print(f"  For ~3x faster builds, reinstall with [bold]{gpu_pkg}[/]:")
+
+        # Detect installation method and show appropriate command
+        exe = sys.executable.lower()
+        if os.environ.get("PIPX_HOME") or "pipx/venvs" in exe:
+            console.print(f"    pipx inject hhg {gpu_pkg}")
+        elif "uv/tools" in exe:
+            # uv tool install creates isolated env
+            console.print(f"    uv tool install hhg --with {gpu_pkg} --reinstall")
+        else:
+            # pip or uv in venv
+            console.print(f"    pip install {gpu_pkg}")
 
 
 _subcommand_original_argv = None
@@ -784,7 +865,7 @@ def main():
     # Solution: strip path/flags from subcommands and let callback parse saved argv
     argv = sys.argv[1:]  # Skip program name
 
-    if len(argv) >= 1 and argv[0] in ("clean", "build", "list", "status", "model"):
+    if len(argv) >= 1 and argv[0] in ("clean", "build", "list", "status", "model", "doctor"):
         # Save original args for callback to parse
         _subcommand_original_argv = argv
         # Just pass subcommand name to typer
