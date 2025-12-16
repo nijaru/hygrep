@@ -104,4 +104,6 @@ select = ["E", "F", "W", "I"]
 # Ignore unresolved imports for optional/dynamic modules
 [tool.ty.rules]
 unresolved-import = "ignore"  # tomli fallback, _scanner extension
+unresolved-attribute = "ignore"  # omendb lacks type stubs
 possibly-missing-attribute = "ignore"  # onnxruntime lacks stubs
+no-matching-overload = "ignore"  # numpy stubs incomplete

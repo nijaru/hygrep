@@ -297,7 +297,7 @@ class ContextExtractor:
         self,
         text: str,
         chunk_size: int = CHUNK_SIZE,
-        separators: list[str] | None = None,
+        separators: list[str | None] | None = None,
     ) -> list[str]:
         """Recursively split text into chunks of target size.
 
