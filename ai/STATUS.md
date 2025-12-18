@@ -43,6 +43,16 @@
   - File path relevance: 1.15x
   - Boost cap at 4x to prevent over-boosting
 
+## Planned
+
+- **Optional cross-encoder reranking** (`--rerank` flag)
+  - Model: jinaai/jina-reranker-v1-tiny-en (33MB)
+  - Rerank top 20-30 results
+  - ~50-80ms overhead
+  - Off by default
+
+- **RRF tuning** (if omendb exposes separate BM25/semantic scores)
+
 ## Open Issues
 
 None currently tracked.

@@ -169,3 +169,51 @@ hhg -r "pattern" path   # Regex match (escape hatch, no index)
 > If you want grep, use `rg`. If you want semantic understanding, use `hhg`.
 
 See `ai/DESIGN-v2.md` for full design.
+
+## 10. Code-Aware Ranking Boosts (2025-12-18)
+
+**Decision:** Add post-search heuristic boosts for code-specific ranking.
+
+**Context:**
+
+- Semantic + BM25 hybrid search is good but not code-aware
+- Users often search for exact names ("UserManager", "handleAuth")
+- Type context matters ("UserManager class" vs just "UserManager")
+
+**Implementation:**
+
+- CamelCase/snake_case splitting for term matching
+- Exact name match: 2.5x boost
+- Term overlap: +30% per matching term
+- Type-aware: 1.5x if query mentions "class"/"function"
+- File path relevance: 1.15x
+- Boost cap at 4x to prevent over-boosting weak semantic matches
+
+**Rationale:**
+
+- Zero latency overhead (simple heuristics)
+- Handles common keyword-style searches well
+- Complements semantic understanding
+
+## 11. Optional Cross-Encoder Reranking (Planned)
+
+**Decision:** Add optional reranking for conceptual queries.
+
+**Model:** `jinaai/jina-reranker-v1-tiny-en` (33MB)
+
+**When it helps:**
+
+- "how does authentication work" (conceptual)
+- "error handling patterns" (semantic)
+- Queries where bi-encoder embeddings miss nuance
+
+**Implementation plan:**
+
+- Flag: `--rerank` or env: `HHG_RERANK=1`
+- Rerank top 20-30 results only
+- ~50-80ms overhead (acceptable for CLI)
+- Off by default (most queries are keyword-style)
+
+**Quantization:** Not needed - 33MB is already small. INT8 could hurt reranking quality where precision matters more than embedding.
+
+**Status:** Not yet implemented. Code boosts handle most cases well.
