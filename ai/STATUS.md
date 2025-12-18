@@ -34,6 +34,10 @@
 - Quiet mode (`-q`) suppresses "Running:" prefix
 - Fix Mojo and Python warnings (utcnow deprecation, type hints)
 
+## Unreleased
+
+- Add code-aware ranking boosts (exact name 3x, type hierarchy, file path)
+
 ## Open Issues
 
 None currently tracked.

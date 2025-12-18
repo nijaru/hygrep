@@ -238,6 +238,68 @@ def filter_results(
     return results
 
 
+def boost_results(results: list[dict], query: str) -> list[dict]:
+    """Apply code-aware ranking boosts to search results.
+
+    Boosts:
+        - Exact name match: 3x (query contains block name)
+        - Partial name match: 1.5x (query term in block name)
+        - Type hierarchy: class/struct 1.4x, function/method 1.2x, interface/type 1.1x
+        - File path relevance: 1.2x (query term in file path)
+    """
+    import re
+
+    if not results or not query:
+        return results
+
+    # Tokenize query into terms (split on whitespace and common separators)
+    query_lower = query.lower()
+    query_terms = set(re.split(r"[\s_\-./]+", query_lower))
+    query_terms.discard("")
+
+    # Type boost weights
+    type_weights = {
+        "class": 1.4,
+        "struct": 1.4,
+        "function": 1.2,
+        "method": 1.2,
+        "interface": 1.1,
+        "type": 1.1,
+        "trait": 1.1,
+        "enum": 1.1,
+    }
+
+    for r in results:
+        boost = 1.0
+        name = r.get("name", "").lower()
+        block_type = r.get("type", "").lower()
+        file_path = r.get("file", "").lower()
+
+        # 1. Exact name match (strongest signal)
+        if name and name in query_terms:
+            boost *= 3.0
+        # Partial match (name contains query term or vice versa)
+        elif name:
+            for term in query_terms:
+                if len(term) >= 3 and (term in name or name in term):
+                    boost *= 1.5
+                    break
+
+        # 2. Type hierarchy boost
+        boost *= type_weights.get(block_type, 1.0)
+
+        # 3. File path relevance
+        if any(term in file_path for term in query_terms if len(term) >= 3):
+            boost *= 1.2
+
+        # Update score to boosted value
+        r["score"] = r.get("score", 0) * boost
+
+    # Re-sort by boosted score
+    results.sort(key=lambda x: x.get("score", 0), reverse=True)
+    return results
+
+
 def print_results(
     results: list[dict],
     json_output: bool = False,
@@ -491,6 +553,7 @@ def search(
         raise typer.Exit(EXIT_NO_MATCH)
 
     results = filter_results(results, file_types, exclude, code_only)
+    results = boost_results(results, query)
     print_results(results, json_output, files_only, compact, root=path)
 
     if not quiet and not json_output and not files_only:
