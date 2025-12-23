@@ -2,14 +2,33 @@
 
 | Metric    | Value                         | Updated    |
 | --------- | ----------------------------- | ---------- |
-| Phase     | 23 (linux arm64)              | 2025-12-20 |
-| Version   | 0.0.23 (PyPI)                 | 2025-12-20 |
+| Phase     | 25 (similar UX)               | 2025-12-22 |
+| Version   | 0.0.25 (pending release)      | 2025-12-22 |
 | Package   | `hhg` (renamed from `hygrep`) | 2025-12-16 |
 | Branch    | main                          | 2025-12-16 |
 | PyPI      | https://pypi.org/project/hhg/ | 2025-12-16 |
 | CLI       | `hhg`                         | 2025-12-16 |
 | Languages | 28 + prose (md, txt, rst)     | 2025-12-16 |
 | Model     | jina-code-int8 (768 dims)     | 2025-12-16 |
+| omendb    | >=0.0.14                      | 2025-12-22 |
+
+## v0.0.25 Changes
+
+- **New similar search syntax** - auto-detect file references in main command
+  - `hhg file.py#function_name` - find similar by block name
+  - `hhg file.py:42` - find similar by line number
+  - `hhg file.py` - find similar to first block
+- **Exclude text/doc blocks** from similar results by default
+- **Show similarity percentage** in output (e.g. "65% similar")
+- **Ambiguous name handling** - error with suggestions if name matches multiple blocks
+- **Deprecate** `hhg similar` subcommand (still works with notice)
+- **Change** `model-install` to `hhg model install`
+- **Update** SKILL_CONTENT with new syntax
+
+## v0.0.24 Changes
+
+- Add `hhg similar` command for finding similar code
+- Update omendb to 0.0.14
 
 ## v0.0.17 Changes
 
