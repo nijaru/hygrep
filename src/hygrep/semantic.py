@@ -17,6 +17,24 @@ VECTORS_DIR = "vectors"
 MANIFEST_FILE = "manifest.json"
 MANIFEST_VERSION = 5  # v5: jina-code-int8 model (768 dims)
 
+# Block types that are documentation, not code
+DOC_BLOCK_TYPES = {"text", "section"}
+
+
+class AmbiguousBlockError(Exception):
+    """Raised when a block name matches multiple blocks."""
+
+    def __init__(self, name: str, matches: list[dict]):
+        self.name = name
+        self.matches = matches
+        super().__init__(f"Multiple blocks named '{name}' found")
+
+
+class BlockNotFoundError(Exception):
+    """Raised when a block cannot be found."""
+
+    pass
+
 
 def _extract_blocks_worker(file_path: str, content: str, rel_path: str) -> list[dict]:
     """Worker to extract blocks from a single file."""
@@ -456,20 +474,36 @@ class SemanticIndex:
         output.sort(key=lambda x: -x["score"])
         return output[:k]
 
-    def find_similar(self, file_path: str, line: int | None = None, k: int = 10) -> list[dict]:
+    def find_similar(
+        self,
+        file_path: str,
+        line: int | None = None,
+        name: str | None = None,
+        k: int = 10,
+        include_docs: bool = False,
+    ) -> list[dict]:
         """Find code blocks similar to a given file/block.
 
         Uses pure vector similarity (no BM25) to find semantically similar code.
 
         Args:
             file_path: Path to the source file (absolute or relative).
-            line: Optional line number to find a specific block.
+            line: Line number to find block (mutually exclusive with name).
+            name: Block name to find (mutually exclusive with line).
             k: Number of similar results to return.
+            include_docs: Include text/doc blocks in results (default False).
 
         Returns:
             List of similar blocks with file, type, name, content, score.
-            Excludes the query block itself.
+            Excludes the query block itself and blocks from the same file.
+
+        Raises:
+            BlockNotFoundError: If file or block not found in index.
+            AmbiguousBlockError: If name matches multiple blocks.
         """
+        if line is not None and name is not None:
+            raise ValueError("Cannot specify both line and name")
+
         db = self._ensure_db()
         manifest = self._load_manifest()
 
@@ -479,15 +513,43 @@ class SemanticIndex:
         # Find the block(s) for this file
         file_entry = manifest.get("files", {}).get(rel_path)
         if not file_entry or not isinstance(file_entry, dict):
-            return []
+            raise BlockNotFoundError(f"File not in index: {rel_path}")
 
         block_ids = file_entry.get("blocks", [])
         if not block_ids:
-            return []
+            raise BlockNotFoundError(f"No blocks found in {rel_path}")
 
-        # If line specified, find the specific block
+        # Find the query block
         query_block_id = None
-        if line is not None:
+
+        if name is not None:
+            # Look up by name
+            matching = []
+            for block_id in block_ids:
+                item = db.get(block_id)
+                if item:
+                    meta = item.get("metadata", {})
+                    block_name = meta.get("name", "")
+                    # Support Class.method syntax
+                    if block_name == name or block_name.endswith(f".{name}"):
+                        matching.append(
+                            {
+                                "id": block_id,
+                                "name": block_name,
+                                "line": meta.get("start_line", 0),
+                                "type": meta.get("type", ""),
+                            }
+                        )
+
+            if not matching:
+                raise BlockNotFoundError(f"No block named '{name}' in {rel_path}")
+            elif len(matching) > 1:
+                raise AmbiguousBlockError(name, matching)
+            else:
+                query_block_id = matching[0]["id"]
+
+        elif line is not None:
+            # Look up by line
             for block_id in block_ids:
                 item = db.get(block_id)
                 if item:
@@ -498,25 +560,25 @@ class SemanticIndex:
                         query_block_id = block_id
                         break
             if not query_block_id:
-                # Line not found in any block, use first block
+                # Line not in any block, use first block
                 query_block_id = block_ids[0]
         else:
-            # No line specified, use first block in file
+            # No line or name, use first block
             query_block_id = block_ids[0]
 
         # Get the embedding for the query block
         query_item = db.get(query_block_id)
         if not query_item:
-            return []
+            raise BlockNotFoundError("Could not retrieve block embedding")
 
         query_vector = query_item.get("vector")
         if not query_vector:
-            return []
+            raise BlockNotFoundError("Block has no embedding")
 
-        # Search by vector similarity (request more to filter out self)
-        results = db.search(query_vector, k=k + len(block_ids))
+        # Search by vector similarity (request more to filter out self and docs)
+        results = db.search(query_vector, k=k * 3 + len(block_ids))
 
-        # Format results, excluding blocks from the same file
+        # Format results, filtering as needed
         output = []
         for r in results:
             r_id = r.get("id", "")
@@ -525,8 +587,13 @@ class SemanticIndex:
                 continue
 
             meta = r.get("metadata", {})
+            block_type = meta.get("type", "")
+
+            # Filter out doc blocks unless requested
+            if not include_docs and block_type in DOC_BLOCK_TYPES:
+                continue
+
             rel_file = meta.get("file", "")
-            abs_file = self._to_absolute(rel_file)
 
             # Filter by search scope if set
             if self.search_scope and not rel_file.startswith(self.search_scope):
@@ -538,8 +605,8 @@ class SemanticIndex:
 
             output.append(
                 {
-                    "file": abs_file,
-                    "type": meta.get("type", ""),
+                    "file": self._to_absolute(rel_file),
+                    "type": block_type,
                     "name": meta.get("name", ""),
                     "line": meta.get("start_line", 0),
                     "end_line": meta.get("end_line", 0),

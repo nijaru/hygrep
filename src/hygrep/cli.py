@@ -63,6 +63,40 @@ def index_exists(root: Path) -> bool:
     return (index_path / "manifest.json").exists()
 
 
+def parse_file_reference(query: str) -> tuple[str, int | None, str | None] | None:
+    """Parse file reference from query if it looks like file#name or file:line.
+
+    Returns:
+        (file_path, line, name) if query is a valid file reference, None otherwise.
+        - file#name -> (file, None, name)
+        - file:42 -> (file, 42, None)
+        - file (exists) -> (file, None, None)
+    """
+    if not query:
+        return None
+
+    # Check for #name syntax first (less common in text)
+    if "#" in query:
+        file_part, name = query.rsplit("#", 1)
+        # Validate name looks like an identifier
+        if name and name.replace(".", "").replace("_", "").isalnum():
+            if Path(file_part).exists():
+                return (file_part, None, name)
+
+    # Check for :line syntax
+    if ":" in query:
+        parts = query.rsplit(":", 1)
+        if parts[1].isdigit():
+            if Path(parts[0]).exists():
+                return (parts[0], int(parts[1]), None)
+
+    # Check for plain file path (must exist to avoid treating text as file ref)
+    if Path(query).exists() and Path(query).is_file():
+        return (query, None, None)
+
+    return None
+
+
 def build_index(
     root: Path,
     quiet: bool = False,
@@ -330,9 +364,14 @@ def print_results(
     files_only: bool = False,
     compact: bool = False,
     show_content: bool = True,
+    show_score: bool = False,
     root: Path | None = None,
 ) -> None:
-    """Print search results."""
+    """Print search results.
+
+    Args:
+        show_score: If True, display similarity percentage (for similar search).
+    """
     # Convert to relative paths
     if root:
         for r in results:
@@ -372,7 +411,15 @@ def print_results(
         name_str = r.get("name", "")
         line = r.get("line", 0)
 
-        console.print(f"[cyan]{file_path}[/]:[yellow]{line}[/] {type_str} [bold]{name_str}[/]")
+        # Build the output line
+        line_parts = [f"[cyan]{file_path}[/]:[yellow]{line}[/] {type_str} [bold]{name_str}[/]"]
+
+        # Add similarity score if requested
+        if show_score and "score" in r:
+            score_pct = int(r["score"] * 100)
+            line_parts.append(f"[magenta]({score_pct}% similar)[/]")
+
+        console.print(" ".join(line_parts))
 
         # Content preview (first 3 non-empty lines)
         if show_content and r.get("content"):
@@ -383,6 +430,74 @@ def print_results(
                     content_line = content_line[:77] + "..."
                 console.print(f"  [dim]{content_line}[/]")
             console.print()
+
+
+def _run_similar_search(
+    file_path: str,
+    line: int | None = None,
+    name: str | None = None,
+    n: int = 10,
+    json_output: bool = False,
+    files_only: bool = False,
+    compact: bool = False,
+    quiet: bool = False,
+) -> None:
+    """Run similar search for a file reference."""
+    from .semantic import AmbiguousBlockError, BlockNotFoundError, SemanticIndex
+
+    file_path = str(Path(file_path).resolve())
+
+    # Find index by walking up from the file's directory
+    file_dir = Path(file_path).parent
+    index_root, existing_index = find_index(file_dir)
+
+    if existing_index is None:
+        err_console.print("[red]Error:[/] No index found. Run 'hhg build' first.")
+        raise typer.Exit(EXIT_ERROR)
+
+    # Build reference description for output
+    if name:
+        ref_desc = f"{Path(file_path).name}#{name}"
+    elif line:
+        ref_desc = f"{Path(file_path).name}:{line}"
+    else:
+        ref_desc = Path(file_path).name
+
+    try:
+        if not quiet:
+            with Status(f"Finding similar to {ref_desc}...", console=err_console):
+                index = SemanticIndex(index_root)
+                results = index.find_similar(file_path, line=line, name=name, k=n)
+        else:
+            index = SemanticIndex(index_root)
+            results = index.find_similar(file_path, line=line, name=name, k=n)
+    except BlockNotFoundError as e:
+        err_console.print(f"[red]Error:[/] {e}")
+        raise typer.Exit(EXIT_ERROR)
+    except AmbiguousBlockError as e:
+        err_console.print(f"[red]Error:[/] Multiple blocks named '{e.name}' found:")
+        for m in e.matches:
+            err_console.print(f"  - line {m['line']}: {m['type']} {m['name']}")
+        err_console.print(f"\nUse {Path(file_path).name}:<line> to specify.")
+        raise typer.Exit(EXIT_ERROR)
+
+    if not results:
+        if not json_output:
+            err_console.print("[dim]No similar code found[/]")
+        raise typer.Exit(EXIT_NO_MATCH)
+
+    print_results(
+        results,
+        json_output=json_output,
+        files_only=files_only,
+        compact=compact,
+        show_score=True,
+        root=index_root,
+    )
+
+    if not quiet and not json_output:
+        result_word = "result" if len(results) == 1 else "results"
+        err_console.print(f"[dim]{len(results)} similar {result_word}[/]")
 
 
 @app.callback(invoke_without_command=True)
@@ -516,25 +631,24 @@ def search(
         raise typer.Exit()
 
     elif query == "similar":
+        # Deprecated: use hhg file#name or hhg file:line instead
         args = _subcommand_original_argv[1:] if _subcommand_original_argv else []
         if _check_help_flag():
             console.print(
-                "Usage: hhg similar <file>[:line] [path] [-n N]\n\n"
+                "Usage: hhg <file>#<name> or hhg <file>:<line>\n\n"
                 "Find code similar to a given file or block.\n\n"
+                "Note: 'hhg similar' is deprecated. Use directly:\n"
+                "  hhg src/auth.py#login          # Similar to function by name\n"
+                "  hhg src/auth.py:42             # Similar to block at line 42\n"
+                "  hhg src/auth.py                # Similar to first block\n\n"
                 "Options:\n"
                 "  -n N        Number of results (default: 10)\n"
                 "  -j, --json  JSON output\n"
                 "  -c          Compact output\n"
-                "  -q          Quiet mode\n\n"
-                "Examples:\n"
-                "  hhg similar src/auth.py        # Similar to first block\n"
-                "  hhg similar src/auth.py:42     # Similar to block at line 42\n"
-                "  hhg similar src/auth.py -n 5   # Top 5 similar"
+                "  -q          Quiet mode"
             )
             raise typer.Exit()
         # Parse args and options
-        file_arg = None
-        path_arg = Path(".")
         n_val = 10
         json_val = json_output
         compact_val = compact
@@ -561,14 +675,23 @@ def search(
             else:
                 i += 1
         file_arg = positionals[0] if positionals else None
-        if len(positionals) > 1:
-            path_arg = Path(positionals[1])
         if not file_arg:
             err_console.print("[red]Error:[/] Missing file path")
             raise typer.Exit(EXIT_ERROR)
-        similar(
-            file_path=file_arg,
-            path=path_arg,
+        # Parse file reference
+        file_ref = parse_file_reference(file_arg)
+        if file_ref is None:
+            # Treat as file path if it doesn't exist yet
+            file_ref = (file_arg, None, None)
+        file_path, line, name = file_ref
+        if not quiet_val:
+            err_console.print(
+                "[dim]Note: 'hhg similar' is deprecated. Use 'hhg file#name' directly.[/]"
+            )
+        _run_similar_search(
+            file_path=file_path,
+            line=line,
+            name=name,
             n=n_val,
             json_output=json_val,
             compact=compact_val,
@@ -583,6 +706,23 @@ def search(
     # Handle -h or no query as help (typer parses -h as query since it's first positional)
     if not query or query in ("-h", "--help"):
         console.print(ctx.get_help())
+        raise typer.Exit()
+
+    # Check if query is a file reference (file#name, file:line, or existing file)
+    file_ref = parse_file_reference(query)
+    if file_ref is not None:
+        # This is a similar search, not a text search
+        file_path, line, name = file_ref
+        _run_similar_search(
+            file_path=file_path,
+            line=line,
+            name=name,
+            n=n,
+            json_output=json_output,
+            files_only=files_only,
+            compact=compact,
+            quiet=quiet,
+        )
         raise typer.Exit()
 
     # Validate path
@@ -896,71 +1036,6 @@ def clean(
 
 
 @app.command()
-def similar(
-    file_path: str = typer.Argument(..., help="File path (optionally with :line)"),
-    path: Path = typer.Argument(Path("."), help="Search directory"),
-    n: int = typer.Option(10, "-n", help="Number of results"),
-    json_output: bool = typer.Option(False, "--json", "-j", help="JSON output"),
-    compact: bool = typer.Option(False, "-c", "--compact", help="No content in output"),
-    quiet: bool = typer.Option(False, "-q", "--quiet", help="Suppress progress"),
-):
-    """Find code similar to a given file or block.
-
-    Examples:
-        hhg similar src/auth.py           # Find code similar to first block
-        hhg similar src/auth.py:42        # Find code similar to block at line 42
-        hhg similar src/auth.py -n 20     # More results
-    """
-    from .semantic import SemanticIndex
-
-    # Parse file:line format
-    line = None
-    if ":" in file_path:
-        parts = file_path.rsplit(":", 1)
-        if parts[1].isdigit():
-            file_path = parts[0]
-            line = int(parts[1])
-
-    # Resolve paths
-    file_path = str(Path(file_path).resolve())
-    path = path.resolve()
-
-    if not Path(file_path).exists():
-        err_console.print(f"[red]Error:[/] File not found: {file_path}")
-        raise typer.Exit(EXIT_ERROR)
-
-    # Find index
-    index_root, existing_index = find_index(path)
-    if existing_index is None:
-        err_console.print("[red]Error:[/] No index found. Run 'hhg build' first.")
-        raise typer.Exit(EXIT_ERROR)
-
-    # Find similar code
-    if not quiet:
-        with Status("Finding similar code...", console=err_console):
-            index = SemanticIndex(index_root, search_scope=path)
-            results = index.find_similar(file_path, line=line, k=n)
-    else:
-        index = SemanticIndex(index_root, search_scope=path)
-        results = index.find_similar(file_path, line=line, k=n)
-
-    if not results:
-        if not json_output:
-            err_console.print("[dim]No similar code found[/]")
-        raise typer.Exit(EXIT_NO_MATCH)
-
-    # Apply boosts (reuse existing logic)
-    # For similar search, we don't have a text query to boost against
-    # Just use the similarity score directly
-
-    print_results(results, json_output, files_only=False, compact=compact, root=path)
-
-    if not quiet and not json_output:
-        result_word = "result" if len(results) == 1 else "results"
-        err_console.print(f"[dim]{len(results)} similar {result_word}[/]")
-
-
-@app.command()
 def model():
     """Show embedding model status."""
     from huggingface_hub import try_to_load_from_cache
@@ -982,13 +1057,9 @@ def model():
         console.print("  Run 'hhg model install' to download")
 
 
-@app.command(name="model-install")
+@app.command(name="model-install", hidden=True)
 def model_install():
-    """Download embedding model.
-
-    The model auto-downloads on first use, but this command lets you
-    pre-download for offline use, CI, or to fix a corrupted download.
-    """
+    """Download embedding model (deprecated: use 'hhg model install')."""
     from huggingface_hub import hf_hub_download
 
     from .embedder import MODEL_FILE, MODEL_REPO, TOKENIZER_FILE
@@ -1014,8 +1085,8 @@ SKILL_CONTENT = """---
 name: hhg
 description: >
   Semantic code search. Use for conceptual queries like "find authentication",
-  "where is error handling", "how does X work". Better than grep for fuzzy/semantic
-  matches. Requires index (auto-builds if HHG_AUTO_BUILD=1).
+  "where is error handling", "how does X work". Also finds similar code with
+  file#name or file:line syntax. Requires index (auto-builds if HHG_AUTO_BUILD=1).
 allowed-tools: Bash(command:hhg*)
 ---
 
@@ -1043,6 +1114,7 @@ Hybrid semantic + keyword code search. Use for conceptual queries.
 ## Commands
 
 ```bash
+# Semantic search (text queries)
 hhg "query" ./path          # Semantic search (auto-updates stale files)
 hhg "query" ./path -n 20    # More results
 hhg "query" . --json        # JSON output for parsing
@@ -1051,15 +1123,21 @@ hhg "query" . -c            # Compact (no content preview)
 hhg "query" . -t py,rs      # Filter by file type
 hhg "query" . --code-only   # Exclude docs (md, txt, rst)
 
-hhg similar file.py ./path  # Find similar code blocks
-hhg similar file.py:42 .    # Find code similar to block at line 42
-hhg similar file.py -n 5    # Limit to 5 results
+# Find similar code (file reference)
+hhg file.py#function_name   # Find code similar to function by name
+hhg file.py:42              # Find code similar to block at line 42
+hhg file.py                 # Find code similar to first block
 
+# Index management
 hhg build ./path            # Build/update index
 hhg build ./path --force    # Full rebuild
 hhg status ./path           # Index stats
 hhg clean ./path            # Delete index
 hhg list ./path             # List all indexes under path
+
+# Model management
+hhg model                   # Show model status
+hhg model install           # Download model for offline use
 ```
 
 ## Patterns
@@ -1074,8 +1152,10 @@ hhg "error handling retry logic" ./src
 # Find by concept
 hhg "database connection pooling" ./src
 
-# Find similar code
-hhg similar src/auth.py:25 ./src  # Find code like function at line 25
+# Find similar code (structural patterns)
+hhg src/auth.py#authenticate    # Find functions similar to authenticate
+hhg src/models.py#User          # Find classes similar to User
+hhg src/handlers.py:42          # Find code like block at line 42
 
 # JSON for programmatic use
 hhg "api endpoints" ./src --json | jq '.[0].file'
