@@ -3,7 +3,7 @@
 | Metric    | Value                         | Updated    |
 | --------- | ----------------------------- | ---------- |
 | Phase     | 25 (similar UX)               | 2025-12-22 |
-| Version   | 0.0.25 (pending release)      | 2025-12-22 |
+| Version   | 0.0.25                        | 2025-12-22 |
 | Package   | `hhg` (renamed from `hygrep`) | 2025-12-16 |
 | Branch    | main                          | 2025-12-16 |
 | PyPI      | https://pypi.org/project/hhg/ | 2025-12-16 |
