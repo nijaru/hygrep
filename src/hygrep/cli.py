@@ -480,6 +480,9 @@ def _run_similar_search(
             err_console.print(f"  - line {m['line']}: {m['type']} {m['name']}")
         err_console.print(f"\nUse {Path(file_path).name}:<line> to specify.")
         raise typer.Exit(EXIT_ERROR)
+    except RuntimeError as e:
+        err_console.print(f"[red]Error:[/] {e}")
+        raise typer.Exit(EXIT_ERROR)
 
     if not results:
         if not json_output:
@@ -747,16 +750,27 @@ def search(
 
         files = scan(str(index_root), ".", include_hidden=False)
         index = SemanticIndex(index_root)
-        stale_count = index.needs_update(files)
+        try:
+            stale_count = index.needs_update(files)
 
-        if stale_count > 0:
-            if not quiet:
-                with Status(f"Updating {stale_count} changed files...", console=err_console):
-                    stats = index.update(files)
-                if stats.get("blocks", 0) > 0:
-                    err_console.print(f"[dim]  Updated {stats['blocks']} blocks[/]")
-            else:
-                index.update(files)
+            if stale_count > 0:
+                if not quiet:
+                    with Status(f"Updating {stale_count} changed files...", console=err_console):
+                        stats = index.update(files)
+                    if stats.get("blocks", 0) > 0:
+                        err_console.print(f"[dim]  Updated {stats['blocks']} blocks[/]")
+                else:
+                    index.update(files)
+        except RuntimeError as e:
+            err_console.print(f"[red]Error:[/] {e}")
+            # Provide context-aware help if using a parent index
+            if index_root != search_path:
+                err_console.print("\nOptions:")
+                err_console.print(f"  hhg build --force {index_root}  # Rebuild parent index")
+                err_console.print(
+                    f"  hhg build --force {search_path}  # Create separate index here"
+                )
+            raise typer.Exit(EXIT_ERROR)
 
         # Release lock before search
         index.close()
@@ -801,15 +815,17 @@ def status(path: Path = typer.Argument(Path("."), help="Directory")):
         raise typer.Exit()
 
     index = SemanticIndex(path)
-    block_count = index.count()
-
-    # Get file count from manifest
-    manifest = index._load_manifest()
-    file_count = len(manifest.get("files", {}))
-
-    # Check for stale files
-    files = scan(str(path), ".", include_hidden=False)
-    changed, deleted = index.get_stale_files(files)
+    try:
+        block_count = index.count()
+        # Get file count from manifest
+        manifest = index._load_manifest()
+        file_count = len(manifest.get("files", {}))
+        # Check for stale files
+        files = scan(str(path), ".", include_hidden=False)
+        changed, deleted = index.get_stale_files(files)
+    except RuntimeError as e:
+        err_console.print(f"[red]Error:[/] {e}")
+        raise typer.Exit(EXIT_ERROR)
     stale_count = len(changed) + len(deleted)
 
     if stale_count == 0:
@@ -844,6 +860,7 @@ def build(
     from .semantic import SemanticIndex, find_parent_index, find_subdir_indexes
 
     path = path.resolve()
+    original_path = path  # Track original request for error messages
 
     # Check for parent index that already covers this path
     if not index_exists(path):
@@ -872,7 +889,19 @@ def build(
             files = scan(str(path), ".", include_hidden=False)
 
         index = SemanticIndex(path)
-        changed, deleted = index.get_stale_files(files)
+        try:
+            changed, deleted = index.get_stale_files(files)
+        except RuntimeError as e:
+            # Version mismatch or other manifest error
+            err_console.print(f"[red]Error:[/] {e}")
+            # Provide context-aware help if we redirected to a parent
+            if path != original_path:
+                err_console.print("\nOptions:")
+                err_console.print(f"  hhg build --force {path}  # Rebuild parent index")
+                err_console.print(
+                    f"  hhg build --force {original_path}  # Create separate index in subdir"
+                )
+            raise typer.Exit(EXIT_ERROR)
         stale_count = len(changed) + len(deleted)
 
         if stale_count == 0:
