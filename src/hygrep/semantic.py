@@ -282,6 +282,14 @@ class SemanticIndex:
             # No manifest migration needed - search() falls back to vector-only
             # for indexes without text. Rebuild with `hhg build --force` to enable hybrid.
 
+            # Validate model version matches - different models produce incompatible embeddings
+            stored_model = data.get("model")
+            if stored_model and stored_model != MODEL_VERSION and files:
+                raise RuntimeError(
+                    f"Index was built with model '{stored_model}'.\n"
+                    f"Current model ({MODEL_VERSION}) requires rebuild: hhg build --force"
+                )
+
             # Ensure model version is set for v6+
             if "model" not in data:
                 data["model"] = MODEL_VERSION

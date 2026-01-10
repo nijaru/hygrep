@@ -1,8 +1,11 @@
 """MLX Embedder - Apple Silicon GPU acceleration via mlx-embeddings."""
 
+import logging
 import threading
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # MLX imports deferred for platform compatibility
 try:
@@ -49,6 +52,12 @@ class MLXEmbedder:
             if self._model is not None:
                 return
             self._model, self._tokenizer_wrapper = load(MODEL_ID)
+            # Access underlying tokenizer - check for API changes
+            if not hasattr(self._tokenizer_wrapper, "_tokenizer"):
+                raise RuntimeError(
+                    "mlx_embeddings API changed: _tokenizer attribute missing. "
+                    "Please update hygrep or report this issue."
+                )
             self._tokenizer = self._tokenizer_wrapper._tokenizer
 
     def _embed_one(self, text: str) -> np.ndarray:
@@ -133,8 +142,10 @@ class MLXEmbedder:
                 embeddings = self._embed_batch_safe(bucket_texts)
                 # Check for NaN - fall back to individual if needed
                 if np.isnan(embeddings).any():
+                    logger.debug("NaN in batch embeddings, falling back to individual")
                     embeddings = np.array([self._embed_one(t) for t in bucket_texts])
-            except Exception:
+            except Exception as e:
+                logger.debug("Batch embedding failed (%s), falling back to individual", e)
                 embeddings = np.array([self._embed_one(t) for t in bucket_texts])
 
             for j, idx in enumerate(bucket_indices):

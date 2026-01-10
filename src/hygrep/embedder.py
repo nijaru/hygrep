@@ -1,6 +1,7 @@
 """Embedder - ONNX text embeddings for semantic search."""
 
 import os
+import sys
 import threading
 
 import numpy as np
@@ -60,7 +61,6 @@ def _get_best_provider_and_model() -> tuple[list[str], str]:
 
 
 # Check for MLX availability on macOS
-import sys
 
 _MLX_AVAILABLE = False
 if sys.platform == "darwin":
@@ -70,9 +70,6 @@ if sys.platform == "darwin":
         _MLX_AVAILABLE = MLX_AVAILABLE
     except ImportError:
         pass
-
-# Type for embedder (duck typing - both have same interface)
-EmbedderType = "Embedder | MLXEmbedder" if _MLX_AVAILABLE else "Embedder"
 
 # Global embedder instance for caching across calls (useful for library usage)
 _global_embedder: "Embedder | None" = None
@@ -85,6 +82,10 @@ def get_embedder(cache_dir: str | None = None):
     Auto-detects best backend:
     - macOS with MLX: MLXEmbedder (Metal GPU, ~1500 texts/sec)
     - Otherwise: ONNX Embedder (CPU INT8, ~330 texts/sec)
+
+    Args:
+        cache_dir: Cache directory for ONNX model files. Ignored when MLX
+            backend is used (MLX uses HuggingFace Hub's default cache).
 
     Using a global instance enables query embedding caching across calls.
     Useful when hygrep is used as a library with multiple searches.
