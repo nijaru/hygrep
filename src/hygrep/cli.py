@@ -853,7 +853,7 @@ def search(
 def status(path: Path = typer.Argument(Path("."), help="Directory")):
     """Show index status."""
     from .scanner import scan
-    from .semantic import SemanticIndex
+    from .semantic import IndexNeedsRebuild, SemanticIndex
 
     path = path.resolve()
 
@@ -870,6 +870,9 @@ def status(path: Path = typer.Argument(Path("."), help="Directory")):
         # Check for stale files
         files = scan(str(path), ".", include_hidden=False)
         changed, deleted = index.get_stale_files(files)
+    except IndexNeedsRebuild:
+        console.print("[yellow]![/] Index needs rebuild. Run: hhg build --force")
+        raise typer.Exit()
     except RuntimeError as e:
         err_console.print(f"[red]✗[/] {e}")
         raise typer.Exit(EXIT_ERROR)
@@ -904,7 +907,12 @@ def build(
     import shutil
 
     from .scanner import scan
-    from .semantic import SemanticIndex, find_parent_index, find_subdir_indexes
+    from .semantic import (
+        IndexNeedsRebuild,
+        SemanticIndex,
+        find_parent_index,
+        find_subdir_indexes,
+    )
 
     path = path.resolve()
     original_path = path  # Track original request for error messages
@@ -938,6 +946,14 @@ def build(
         index = SemanticIndex(path)
         try:
             changed, deleted = index.get_stale_files(files)
+        except IndexNeedsRebuild:
+            # Model or format changed - force rebuild
+            if not quiet:
+                err_console.print("[dim]Index format changed, rebuilding...[/]")
+            index.clear()
+            build_index(path, quiet=quiet)
+            # Skip to cleanup phase
+            changed, deleted = [], []
         except RuntimeError as e:
             # Version mismatch or other manifest error
             err_console.print(f"[red]✗[/] {e}")
