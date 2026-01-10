@@ -146,12 +146,12 @@ def build_index(
             err_console.print("[yellow]![/] No files found to index")
             return
 
-        err_console.print(f"[dim]Found {len(files)} files[/]")
-
-        # Print merge info if any subdirs were merged
+        # Print merge summary if any subdirs were merged
         if merge_info:
-            for subdir, blocks in merge_info:
-                err_console.print(f"[dim]    Merged {blocks} blocks from {subdir}[/]")
+            total_blocks = sum(b for _, b in merge_info)
+            err_console.print(
+                f"[dim]Merged {total_blocks} blocks from {len(merge_info)} subdirs[/]"
+            )
 
         # Phase 2: Extract and embed
         index = SemanticIndex(root)
@@ -164,22 +164,22 @@ def build_index(
                 Progress,
                 TaskProgressColumn,
                 TextColumn,
-                TimeElapsedColumn,
+                TimeRemainingColumn,
             )
 
             with Progress(
                 TextColumn("[progress.description]{task.description}"),
                 BarColumn(),
                 TaskProgressColumn(),
-                TimeElapsedColumn(),
+                TimeRemainingColumn(),
                 console=err_console,
                 transient=True,
             ) as progress:
-                task = progress.add_task("Extracting...", total=None)
+                task = progress.add_task("Indexing...", total=None)
 
                 def on_progress(current: int, total: int, _msg: str) -> None:
                     if progress.tasks[task].total != total:
-                        progress.update(task, total=total, description="Embedding...")
+                        progress.update(task, total=total)
                     progress.update(task, completed=current)
 
                 stats = index.index(
@@ -190,10 +190,6 @@ def build_index(
                 stats = index.index(files, workers=workers, batch_size=batch_size)
 
         index_time = time.perf_counter() - t0
-
-        # Summary: skipped first, then final count
-        if stats["skipped"]:
-            err_console.print(f"[dim]    Skipped {stats['skipped']} unchanged files[/]")
 
         # Return stats for caller to print summary, or print it here
         if defer_summary:
@@ -592,7 +588,6 @@ def search(
             )
             raise typer.Exit()
         actual_path, _ = _parse_subcommand_args(path)
-        err_console.print(f"[dim]Running: hhg status {actual_path}[/]")
         status(path=actual_path)
         raise typer.Exit()
 
@@ -604,10 +599,6 @@ def search(
             )
             raise typer.Exit()
         actual_path, flags = _parse_subcommand_args(path, {"force": False, "quiet": quiet})
-        if not flags["quiet"]:
-            err_console.print(
-                f"[dim]Running: hhg build {actual_path}{' --force' if flags['force'] else ''}[/]"
-            )
         build(path=actual_path, force=flags["force"], quiet=flags["quiet"])
         raise typer.Exit()
 
@@ -625,8 +616,6 @@ def search(
             )
             raise typer.Exit()
         actual_path, flags = _parse_subcommand_args(path, {"recursive": recursive})
-        flag_str = " --recursive" if flags["recursive"] else ""
-        err_console.print(f"[dim]Running: hhg clean {actual_path}{flag_str}[/]")
         clean(path=actual_path, recursive=flags["recursive"])
         raise typer.Exit()
 
@@ -637,7 +626,6 @@ def search(
             )
             raise typer.Exit()
         actual_path, _ = _parse_subcommand_args(path)
-        err_console.print(f"[dim]Running: hhg list {actual_path}[/]")
         list_indexes(path=actual_path)
         raise typer.Exit()
 
@@ -651,7 +639,6 @@ def search(
                     "Download embedding model for offline use or to fix corrupted download."
                 )
                 raise typer.Exit()
-            err_console.print("[dim]Running: hhg model install[/]")
             model_install()
             raise typer.Exit()
         else:
@@ -661,7 +648,6 @@ def search(
                     "Show model status, or install with 'hhg model install'."
                 )
                 raise typer.Exit()
-            err_console.print("[dim]Running: hhg model[/]")
             model()
             raise typer.Exit()
 
@@ -932,8 +918,6 @@ def build(
         # Full rebuild: clear first
         index = SemanticIndex(path)
         index.clear()
-        if not quiet:
-            err_console.print("[dim]Cleared existing index[/]")
         build_index(path, quiet=quiet)
     elif index_exists(path):
         # Incremental update
@@ -944,15 +928,16 @@ def build(
             files = scan(str(path), ".", include_hidden=False)
 
         index = SemanticIndex(path)
+        rebuilt = False
         try:
             changed, deleted = index.get_stale_files(files)
         except IndexNeedsRebuild:
             # Model or format changed - force rebuild
             if not quiet:
-                err_console.print("[dim]Index format changed, rebuilding...[/]")
+                err_console.print("[dim]Rebuilding (index format changed)...[/]")
             index.clear()
             build_index(path, quiet=quiet)
-            # Skip to cleanup phase
+            rebuilt = True
             changed, deleted = [], []
         except RuntimeError as e:
             # Version mismatch or other manifest error
@@ -967,24 +952,24 @@ def build(
             raise typer.Exit(EXIT_ERROR)
         stale_count = len(changed) + len(deleted)
 
-        if stale_count == 0:
-            if not quiet:
-                console.print("[green]✓[/] Index up to date")
-            # Fall through to clean up subdir indexes if any
-        else:
-            if not quiet:
-                with Status(f"Updating {stale_count} files...", console=err_console):
-                    stats = index.update(files)
+        if not rebuilt:
+            if stale_count == 0:
+                if not quiet:
+                    console.print("[green]✓[/] Index up to date")
             else:
-                stats = index.update(files)
+                if not quiet:
+                    with Status(f"Updating {stale_count} files...", console=err_console):
+                        stats = index.update(files)
+                else:
+                    stats = index.update(files)
 
-            if not quiet:
-                console.print(
-                    f"[green]✓[/] Updated {stats.get('blocks', 0)} blocks "
-                    f"from {stats.get('files', 0)} files"
-                )
-                if stats.get("deleted", 0):
-                    console.print(f"  [dim]Removed {stats['deleted']} stale blocks[/]")
+                if not quiet:
+                    console.print(
+                        f"[green]✓[/] Updated {stats.get('blocks', 0)} blocks "
+                        f"from {stats.get('files', 0)} files"
+                    )
+                    if stats.get("deleted", 0):
+                        console.print(f"  [dim]Removed {stats['deleted']} stale blocks[/]")
     else:
         # No index exists, build fresh
         # First, merge any subdir indexes (much faster than re-embedding)
