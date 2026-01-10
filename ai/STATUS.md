@@ -43,7 +43,23 @@ Switching from jina-code-v2 to gte-modernbert-base for 44% better code retrieval
 
 ## Tasks
 
-See `tk ls` for implementation tasks.
+See `tk ls` for implementation tasks:
+
+1. Switch model to gte-modernbert-base
+2. Add MLX embedder using mlx-embeddings
+3. Update ONNX embedder for gte-modernbert
+4. Add TensorRT/MIGraphX EP detection
+5. Update pyproject.toml deps
+6. Add model version to manifest
+7. Test embeddings match across backends
+
+## Uncommitted Work
+
+Previous multi-provider changes (may contain useful code):
+
+- `pyproject.toml`: CUDA optional dep
+- `embedder.py`: Provider detection logic
+- `cli.py`: Model info display
 
 ## Breaking Change
 
