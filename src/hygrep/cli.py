@@ -800,13 +800,8 @@ def search(
                     index.update(files)
         except RuntimeError as e:
             err_console.print(f"[red]✗[/] {e}")
-            # Provide context-aware help if using a parent index
             if index_root != search_path:
-                err_console.print("\nOptions:")
-                err_console.print(f"  hhg build --force {index_root}  # Rebuild parent index")
-                err_console.print(
-                    f"  hhg build --force {search_path}  # Create separate index here"
-                )
+                err_console.print(f"[dim]Hint: hhg build --force {index_root}[/]")
             raise typer.Exit(EXIT_ERROR)
 
         # Release lock before search
@@ -873,8 +868,10 @@ def status(path: Path = typer.Argument(Path("."), help="Directory")):
         if deleted:
             parts.append(f"{len(deleted)} deleted")
         stale_str = ", ".join(parts)
-        console.print(f"[yellow]![/] {file_count} files, {block_count} blocks ({stale_str})")
-        console.print("  Run 'hhg build' to update")
+        console.print(
+            f"[yellow]![/] {file_count} files, {block_count} blocks ({stale_str}) "
+            "[dim]— run 'hhg build'[/]"
+        )
 
 
 @app.command()
@@ -942,13 +939,8 @@ def build(
         except RuntimeError as e:
             # Version mismatch or other manifest error
             err_console.print(f"[red]✗[/] {e}")
-            # Provide context-aware help if we redirected to a parent
             if path != original_path:
-                err_console.print("\nOptions:")
-                err_console.print(f"  hhg build --force {path}  # Rebuild parent index")
-                err_console.print(
-                    f"  hhg build --force {original_path}  # Create separate index in subdir"
-                )
+                err_console.print(f"[dim]Hint: hhg build --force {path}[/]")
             raise typer.Exit(EXIT_ERROR)
         stale_count = len(changed) + len(deleted)
 
@@ -1004,16 +996,12 @@ def build(
             _changed, deleted = index.get_stale_files(files)
             if deleted:
                 index.update(files)
-                if not quiet:
-                    err_console.print(
-                        f"[dim]    Cleaned up: {len(deleted)} deleted file entries[/]"
-                    )
 
         # Clean up subdir indexes (now superseded by parent)
         for idx in subdir_indexes:
             shutil.rmtree(idx)
-            if not quiet:
-                err_console.print(f"[dim]    Cleaned up: {idx.parent.relative_to(path)}[/]")
+        if subdir_indexes and not quiet:
+            err_console.print(f"[dim]Cleaned up {len(subdir_indexes)} subdir indexes[/]")
 
         # Print deferred summary after all cleanup
         if result is not None:
@@ -1029,8 +1017,8 @@ def build(
     # Clean up subdir indexes (now superseded by parent) - for non-fresh builds
     for idx in subdir_indexes:
         shutil.rmtree(idx)
-        if not quiet:
-            err_console.print(f"[dim]    Cleaned up: {idx.parent.relative_to(path)}[/]")
+    if subdir_indexes and not quiet:
+        err_console.print(f"[dim]Cleaned up {len(subdir_indexes)} subdir indexes[/]")
 
 
 @app.command(name="list")
@@ -1153,16 +1141,11 @@ def model():
     is_installed = model_cached is not None and tokenizer_cached is not None
 
     if is_installed:
-        console.print(f"[green]✓[/] Model installed: {MODEL_REPO}")
-        # Show provider and batch size
         embedder = get_embedder()
         provider = embedder.provider.replace("ExecutionProvider", "")
-        console.print(f"  Provider: {provider} (batch size: {embedder.batch_size})")
-        console.print(f"  Model: {model_file}")
+        console.print(f"[green]✓[/] {MODEL_REPO} [dim]({provider}, batch {embedder.batch_size})[/]")
     else:
-        console.print(f"[yellow]![/] Model not installed: {MODEL_REPO}")
-        console.print(f"  Needed: {model_file}")
-        console.print("  Run 'hhg model install' to download")
+        console.print("[yellow]![/] Model not installed [dim]— run 'hhg model install'[/]")
 
 
 @app.command(name="model-install", hidden=True)
