@@ -62,13 +62,20 @@ dependencies = [
     "huggingface-hub>=0.20",
     "typer>=0.9",
     "rich>=13.0",
-    "omendb>=0.0.21",
+    "omendb>=0.0.23",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
     "ruff>=0.1",
+]
+cuda = [
+    "onnxruntime-gpu>=1.19; sys_platform == 'linux'",
+]
+mlx = [
+    "mlx>=0.21; sys_platform == 'darwin'",
+    "mlx-embeddings>=0.0.5; sys_platform == 'darwin'",
 ]
 
 [project.scripts]

@@ -2,72 +2,43 @@
 
 | Metric    | Value                         | Updated    |
 | --------- | ----------------------------- | ---------- |
-| Phase     | 27 (model upgrade + MLX)      | 2026-01-10 |
-| Version   | 0.0.28                        | 2026-01-10 |
+| Phase     | 28 (model upgrade complete)   | 2026-01-10 |
+| Version   | 0.0.29-dev                    | 2026-01-10 |
 | Package   | `hhg` (renamed from `hygrep`) | 2025-12-16 |
 | Branch    | main                          | 2025-12-16 |
 | PyPI      | https://pypi.org/project/hhg/ | 2025-12-16 |
 | CLI       | `hhg`                         | 2025-12-16 |
 | Languages | 28 + prose (md, txt, rst)     | 2025-12-16 |
-| Model     | gte-modernbert-base (NEW)     | 2026-01-10 |
+| Model     | gte-modernbert-base           | 2026-01-10 |
 | omendb    | >=0.0.23                      | 2026-01-10 |
 
-## Current Work: Model Upgrade + Hardware Acceleration
+## Completed: Model Upgrade + Hardware Acceleration
 
-Switching from jina-code-v2 to gte-modernbert-base for 44% better code retrieval quality.
+Switched from jina-code-v2 to gte-modernbert-base with MLX support for Apple Silicon.
 
-### Why Switch?
+### Performance
 
-| Metric                  | jina-code-v2 (old) | gte-modernbert-base (new) |
-| ----------------------- | ------------------ | ------------------------- |
-| **CoIR (code quality)** | ~55%               | **79.3%** (+44%)          |
-| MLX support             | Custom code needed | Works out of the box      |
-| License                 | Apache 2.0         | Apache 2.0                |
-| Params                  | 161M               | 149M                      |
-| Context                 | 8K                 | 8K                        |
-| Dims                    | 768                | 768                       |
+| Platform      | Backend              | Speed (texts/sec) | Notes                 |
+| ------------- | -------------------- | ----------------- | --------------------- |
+| Apple Silicon | MLX (mlx-embeddings) | 500-2200          | Varies by text length |
+| Linux + CUDA  | ONNX + TensorRT EP   | ~1000+            | Auto-detect           |
+| Linux + ROCm  | ONNX + MIGraphX EP   | ~800+             | Auto-detect           |
+| CPU fallback  | ONNX + CPU EP        | ~330              | INT8 quantized        |
 
-### Target Architecture
+### Implementation Summary
 
-| Platform      | Backend              | Model Format | Expected Speed   |
-| ------------- | -------------------- | ------------ | ---------------- |
-| Apple Silicon | MLX (mlx-embeddings) | safetensors  | ~1700 texts/sec  |
-| Linux + CUDA  | ONNX + TensorRT EP   | FP16         | ~1000+ texts/sec |
-| Linux + ROCm  | ONNX + MIGraphX EP   | FP16         | ~800+ texts/sec  |
-| CPU fallback  | ONNX + CPU EP        | INT8         | ~220 texts/sec   |
+1. **Model**: gte-modernbert-base (79.3% CoIR vs 55% jina-code)
+2. **MLX Embedder**: New `mlx_embedder.py` with length-bucketed batching
+3. **ONNX Embedder**: Updated for gte-modernbert, TensorRT/MIGraphX EP detection
+4. **Manifest**: Version 6 with model tracking, auto-detect old indexes
+5. **Dependencies**: `mlx` optional dep for macOS
 
-### Research Completed
+### Breaking Change
 
-- [Code embedding model comparison](research/code-embedding-model-comparison-2026.md)
-- [BGE vs jina-code](research/bge-vs-jina-code.md) - superseded by gte-modernbert
+Model switch requires index rebuild:
 
-## Tasks
-
-See `tk ls` for implementation tasks:
-
-1. Switch model to gte-modernbert-base
-2. Add MLX embedder using mlx-embeddings
-3. Update ONNX embedder for gte-modernbert
-4. Add TensorRT/MIGraphX EP detection
-5. Update pyproject.toml deps
-6. Add model version to manifest
-7. Test embeddings match across backends
-
-## Uncommitted Work
-
-Previous multi-provider changes (may contain useful code):
-
-- `pyproject.toml`: CUDA optional dep
-- `embedder.py`: Provider detection logic
-- `cli.py`: Model info display
-
-## Breaking Change
-
-Model switch requires index rebuild. Will:
-
-- Add model version to manifest
-- Detect old indexes and prompt for rebuild
-- Document in release notes
+- Old indexes (v5) prompt: "Rebuild with: hhg build --force"
+- Embeddings incompatible between models
 
 ## Previous Versions
 
@@ -100,7 +71,7 @@ Backend selection (auto-detect):
 | ---------------------------- | ------------------------------------- |
 | `src/hygrep/cli.py`          | CLI, subcommand handling              |
 | `src/hygrep/embedder.py`     | ONNX embeddings, provider detection   |
-| `src/hygrep/mlx_embedder.py` | MLX embeddings (to be created)        |
+| `src/hygrep/mlx_embedder.py` | MLX embeddings (Metal GPU)            |
 | `src/hygrep/semantic.py`     | Index management, parallel extraction |
 | `src/hygrep/extractor.py`    | Tree-sitter code extraction           |
 | `src/scanner/_scanner.mojo`  | Fast file scanning (Mojo)             |

@@ -15,7 +15,7 @@ from .extractor import ContextExtractor
 INDEX_DIR = ".hhg"
 VECTORS_DIR = "vectors"
 MANIFEST_FILE = "manifest.json"
-MANIFEST_VERSION = 5  # v5: jina-code-int8 model (768 dims)
+MANIFEST_VERSION = 6  # v6: gte-modernbert-base model (768 dims)
 
 # Block types that are documentation, not code
 DOC_BLOCK_TYPES = {"text", "section"}
@@ -225,18 +225,29 @@ class SemanticIndex:
     def _load_manifest(self) -> dict:
         """Load manifest of indexed files.
 
-        Manifest format v5:
-            {"version": 5, "files": {"rel/path": {"hash": "abc123", "blocks": ["id1", "id2"]}}}
+        Manifest format v6:
+            {"version": 6, "model": "gte-modernbert-base-v1",
+             "files": {"rel/path": {"hash": "abc123", "blocks": ["id1", "id2"]}}}
 
         Migrates from older formats on load.
         """
+        from .embedder import MODEL_VERSION
+
         if self.manifest_path.exists():
             content = self.manifest_path.read_text().strip()
             if not content:
-                return {"version": MANIFEST_VERSION, "files": {}}
+                return {"version": MANIFEST_VERSION, "model": MODEL_VERSION, "files": {}}
             data = json.loads(content)
             version = data.get("version", 1)
             files = data.get("files", {})
+
+            # v5 -> v6: model changed from jina-code to gte-modernbert
+            # Requires full rebuild - embeddings are incompatible
+            if version < 6 and files:
+                raise RuntimeError(
+                    "Index was built with jina-code model (v5).\n"
+                    "New model (gte-modernbert-base) requires rebuild: hhg build --force"
+                )
 
             # v4 -> v5: embedding model changed (256 -> 768 dims)
             # Requires full rebuild - old embeddings are incompatible
@@ -271,11 +282,19 @@ class SemanticIndex:
             # No manifest migration needed - search() falls back to vector-only
             # for indexes without text. Rebuild with `hhg build --force` to enable hybrid.
 
+            # Ensure model version is set for v6+
+            if "model" not in data:
+                data["model"] = MODEL_VERSION
+
             return data
-        return {"version": MANIFEST_VERSION, "files": {}}
+        return {"version": MANIFEST_VERSION, "model": MODEL_VERSION, "files": {}}
 
     def _save_manifest(self, manifest: dict) -> None:
-        """Save manifest."""
+        """Save manifest with current model version."""
+        from .embedder import MODEL_VERSION
+
+        manifest["version"] = MANIFEST_VERSION
+        manifest["model"] = MODEL_VERSION
         self.manifest_path.write_text(json.dumps(manifest, indent=2))
 
     def index(

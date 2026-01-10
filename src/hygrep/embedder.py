@@ -11,23 +11,80 @@ from tokenizers import Tokenizer
 # Suppress ONNX Runtime warnings
 ort.set_default_logger_severity(3)
 
-# jina-embeddings-v2-base-code: trained on 31 programming languages
-# INT8 quantized (~154MB)
-MODEL_REPO = "nijaru/jina-code-int8"
-MODEL_FILE = "model_int8.onnx"
+# gte-modernbert-base: 79.3% CoIR code retrieval, Apache 2.0
+# Standard ModernBERT architecture - works with MLX out of the box
+MODEL_REPO = "Alibaba-NLP/gte-modernbert-base"
+MODEL_FILE_FP16 = "onnx/model_fp16.onnx"  # ~300 MB - for GPU
+MODEL_FILE_INT8 = "onnx/model_int8.onnx"  # ~150 MB - for CPU
 TOKENIZER_FILE = "tokenizer.json"
 DIMENSIONS = 768
-MAX_LENGTH = 512  # jina supports 8K but 512 is enough for code blocks
+MAX_LENGTH = 512  # gte-modernbert supports 8K but 512 is enough for code blocks
 BATCH_SIZE = 32
+MODEL_VERSION = "gte-modernbert-base-v1"  # For manifest migration tracking
 
+
+def _get_best_provider_and_model() -> tuple[list[str], str]:
+    """Detect best available provider and matching model file.
+
+    Returns:
+        Tuple of (providers, model_file).
+    """
+    available = set(ort.get_available_providers())
+
+    # TensorRT on NVIDIA - fastest for CUDA
+    if "TensorrtExecutionProvider" in available:
+        return (
+            ["TensorrtExecutionProvider", "CUDAExecutionProvider", "CPUExecutionProvider"],
+            MODEL_FILE_FP16,
+        )
+
+    # CUDA on Linux - use FP16 for tensor core acceleration
+    if "CUDAExecutionProvider" in available:
+        return (
+            ["CUDAExecutionProvider", "CPUExecutionProvider"],
+            MODEL_FILE_FP16,
+        )
+
+    # MIGraphX on AMD - use FP16
+    if "MIGraphXExecutionProvider" in available:
+        return (
+            ["MIGraphXExecutionProvider", "CPUExecutionProvider"],
+            MODEL_FILE_FP16,
+        )
+
+    # CPU fallback - use INT8 for smallest/fastest
+    return (
+        ["CPUExecutionProvider"],
+        MODEL_FILE_INT8,
+    )
+
+
+# Check for MLX availability on macOS
+import sys
+
+_MLX_AVAILABLE = False
+if sys.platform == "darwin":
+    try:
+        from .mlx_embedder import MLX_AVAILABLE, MLXEmbedder
+
+        _MLX_AVAILABLE = MLX_AVAILABLE
+    except ImportError:
+        pass
+
+# Type for embedder (duck typing - both have same interface)
+EmbedderType = "Embedder | MLXEmbedder" if _MLX_AVAILABLE else "Embedder"
 
 # Global embedder instance for caching across calls (useful for library usage)
 _global_embedder: "Embedder | None" = None
 _global_lock = threading.Lock()
 
 
-def get_embedder(cache_dir: str | None = None) -> "Embedder":
+def get_embedder(cache_dir: str | None = None):
     """Get or create the global embedder instance.
+
+    Auto-detects best backend:
+    - macOS with MLX: MLXEmbedder (Metal GPU, ~1500 texts/sec)
+    - Otherwise: ONNX Embedder (CPU INT8, ~330 texts/sec)
 
     Using a global instance enables query embedding caching across calls.
     Useful when hygrep is used as a library with multiple searches.
@@ -35,7 +92,10 @@ def get_embedder(cache_dir: str | None = None) -> "Embedder":
     global _global_embedder
     with _global_lock:
         if _global_embedder is None:
-            _global_embedder = Embedder(cache_dir=cache_dir)
+            if _MLX_AVAILABLE:
+                _global_embedder = MLXEmbedder()
+            else:
+                _global_embedder = Embedder(cache_dir=cache_dir)
         return _global_embedder
 
 
@@ -47,10 +107,15 @@ class Embedder:
         self._session: ort.InferenceSession | None = None
         self._tokenizer: Tokenizer | None = None
         self._query_cache: dict[str, np.ndarray] = {}  # LRU cache for query embeddings
+        self._providers: list[str] = []
+        self._model_file: str = MODEL_FILE_INT8
 
     @property
     def provider(self) -> str:
-        """Return the execution provider (CPU only for now)."""
+        """Return the active execution provider."""
+        if self._session is not None:
+            providers = self._session.get_providers()
+            return providers[0] if providers else "CPUExecutionProvider"
         return "CPUExecutionProvider"
 
     @property
@@ -63,11 +128,14 @@ class Embedder:
         if self._session is not None:
             return
 
+        # Detect best provider and model file
+        self._providers, self._model_file = _get_best_provider_and_model()
+
         try:
             # Download model files
             model_path = hf_hub_download(
                 repo_id=MODEL_REPO,
-                filename=MODEL_FILE,
+                filename=self._model_file,
                 cache_dir=self.cache_dir,
             )
             tokenizer_path = hf_hub_download(
@@ -93,7 +161,7 @@ class Embedder:
             ) from e
 
         try:
-            # Load ONNX model with CPU provider
+            # Load ONNX model with best available provider
             opts = ort.SessionOptions()
             opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
             opts.intra_op_num_threads = os.cpu_count() or 4
@@ -101,7 +169,7 @@ class Embedder:
             self._session = ort.InferenceSession(
                 model_path,
                 sess_options=opts,
-                providers=["CPUExecutionProvider"],
+                providers=self._providers,
             )
 
             # Cache input/output names

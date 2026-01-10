@@ -1112,9 +1112,10 @@ def model():
     """Show embedding model status."""
     from huggingface_hub import try_to_load_from_cache
 
-    from .embedder import MODEL_FILE, MODEL_REPO, TOKENIZER_FILE, get_embedder
+    from .embedder import MODEL_REPO, TOKENIZER_FILE, _get_best_provider_and_model, get_embedder
 
-    model_cached = try_to_load_from_cache(MODEL_REPO, MODEL_FILE)
+    _, model_file = _get_best_provider_and_model()
+    model_cached = try_to_load_from_cache(MODEL_REPO, model_file)
     tokenizer_cached = try_to_load_from_cache(MODEL_REPO, TOKENIZER_FILE)
     is_installed = model_cached is not None and tokenizer_cached is not None
 
@@ -1124,8 +1125,10 @@ def model():
         embedder = get_embedder()
         provider = embedder.provider.replace("ExecutionProvider", "")
         console.print(f"  Provider: {provider} (batch size: {embedder.batch_size})")
+        console.print(f"  Model: {model_file}")
     else:
         console.print(f"[yellow]![/] Model not installed: {MODEL_REPO}")
+        console.print(f"  Needed: {model_file}")
         console.print("  Run 'hhg model install' to download")
 
 
@@ -1134,12 +1137,13 @@ def model_install():
     """Download embedding model (deprecated: use 'hhg model install')."""
     from huggingface_hub import hf_hub_download
 
-    from .embedder import MODEL_FILE, MODEL_REPO, TOKENIZER_FILE
+    from .embedder import MODEL_REPO, TOKENIZER_FILE, _get_best_provider_and_model
 
-    console.print(f"[dim]Downloading {MODEL_REPO}...[/]")
+    _, model_file = _get_best_provider_and_model()
+    console.print(f"[dim]Downloading {MODEL_REPO} ({model_file})...[/]")
 
     try:
-        for filename in [MODEL_FILE, TOKENIZER_FILE]:
+        for filename in [model_file, TOKENIZER_FILE]:
             hf_hub_download(
                 repo_id=MODEL_REPO,
                 filename=filename,
