@@ -840,6 +840,12 @@ class SemanticIndex:
             return {"merged": 0, "error": "no manifest"}
 
         subdir_manifest = json.loads(subdir_manifest_path.read_text())
+
+        # Check version compatibility (v6+ = gte-modernbert-base)
+        subdir_version = subdir_manifest.get("version", 1)
+        if subdir_version < MANIFEST_VERSION:
+            return {"merged": 0, "error": "incompatible version"}
+
         subdir_files = subdir_manifest.get("files", {})
 
         # Open subdir database with context manager for proper cleanup
