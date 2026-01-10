@@ -57,10 +57,10 @@ def _handle_index_needs_rebuild(index_root: Path, quiet: bool = False) -> bool:
     Returns True if rebuild was performed, False if user declined.
     """
     if quiet:
-        err_console.print("[red]Index needs rebuild.[/] Run: hhg build --force")
+        err_console.print("[red]✗[/] Index needs rebuild. Run: hhg build --force")
         return False
 
-    err_console.print("[yellow]Index needs rebuild.[/]")
+    err_console.print("[yellow]![/] Index needs rebuild.")
     try:
         response = input("Rebuild now? [Y/n] ").strip().lower()
     except (KeyboardInterrupt, EOFError):
@@ -135,7 +135,7 @@ def build_index(
             index = SemanticIndex(root)
             stats = index.index(files, workers=workers, batch_size=batch_size)
             if stats.get("errors", 0) > 0:
-                err_console.print(f"[yellow]Warning:[/] {stats['errors']} files failed to index")
+                err_console.print(f"[yellow]![/] {stats['errors']} files failed to index")
             return
 
         # Interactive mode: show spinner for scanning
@@ -143,7 +143,7 @@ def build_index(
             files = scan(str(root), ".", include_hidden=False)
 
         if not files:
-            err_console.print("[yellow]No files found to index[/]")
+            err_console.print("[yellow]![/] No files found to index")
             return
 
         err_console.print(f"[dim]Found {len(files)} files[/]")
@@ -204,26 +204,26 @@ def build_index(
             f"from {stats['files']} files ({index_time:.1f}s)"
         )
         if stats.get("errors", 0) > 0:
-            err_console.print(f"[yellow]Warning:[/] {stats['errors']} files failed to index")
+            err_console.print(f"[yellow]![/] {stats['errors']} files failed to index")
         return None
 
     except KeyboardInterrupt:
         # Partial index is preserved - next build will resume
-        err_console.print("\n[yellow]Interrupted:[/] Progress saved, run 'hhg build' to resume")
+        err_console.print("\n[yellow]![/] Interrupted. Progress saved, run 'hhg build' to resume")
         raise typer.Exit(130)
     except RuntimeError as e:
         # Model loading errors from embedder
-        err_console.print(f"[red]Error:[/] {e}")
+        err_console.print(f"[red]✗[/] {e}")
         raise typer.Exit(EXIT_ERROR)
     except PermissionError as e:
-        err_console.print(f"[red]Error:[/] Permission denied: {e.filename}")
+        err_console.print(f"[red]✗[/] Permission denied: {e.filename}")
         err_console.print("[dim]Check directory permissions[/]")
         raise typer.Exit(EXIT_ERROR)
     except OSError as e:
         if "No space left" in str(e) or e.errno == 28:
-            err_console.print("[red]Error:[/] No disk space left")
+            err_console.print("[red]✗[/] No disk space left")
         else:
-            err_console.print(f"[red]Error:[/] {e}")
+            err_console.print(f"[red]✗[/] {e}")
         raise typer.Exit(EXIT_ERROR)
 
 
@@ -490,7 +490,7 @@ def _run_similar_search(
     index_root, existing_index = find_index_root(file_dir)
 
     if existing_index is None:
-        err_console.print("[red]Error:[/] No index found. Run 'hhg build' first.")
+        err_console.print("[red]✗[/] No index found. Run 'hhg build' first.")
         raise typer.Exit(EXIT_ERROR)
 
     # Build reference description for output
@@ -517,16 +517,16 @@ def _run_similar_search(
         else:
             raise typer.Exit(EXIT_ERROR)
     except BlockNotFoundError as e:
-        err_console.print(f"[red]Error:[/] {e}")
+        err_console.print(f"[red]✗[/] {e}")
         raise typer.Exit(EXIT_ERROR)
     except AmbiguousBlockError as e:
-        err_console.print(f"[red]Error:[/] Multiple blocks named '{e.name}' found:")
+        err_console.print(f"[red]✗[/] Multiple blocks named '{e.name}' found:")
         for m in e.matches:
             err_console.print(f"  - line {m['line']}: {m['type']} {m['name']}")
         err_console.print(f"\nUse {Path(file_path).name}:<line> to specify.")
         raise typer.Exit(EXIT_ERROR)
     except RuntimeError as e:
-        err_console.print(f"[red]Error:[/] {e}")
+        err_console.print(f"[red]✗[/] {e}")
         raise typer.Exit(EXIT_ERROR)
 
     if not results:
@@ -711,7 +711,7 @@ def search(
                 i += 1
         file_arg = positionals[0] if positionals else None
         if not file_arg:
-            err_console.print("[red]Error:[/] Missing file path")
+            err_console.print("[red]✗[/] Missing file path")
             raise typer.Exit(EXIT_ERROR)
         # Parse file reference
         file_ref = parse_file_reference(file_arg)
@@ -763,7 +763,7 @@ def search(
     # Validate path
     path = path.resolve()
     if not path.exists():
-        err_console.print(f"[red]Error:[/] Path does not exist: {path}")
+        err_console.print(f"[red]✗[/] Path does not exist: {path}")
         raise typer.Exit(EXIT_ERROR)
 
     # Walk up to find existing index, or determine where to create one
@@ -781,7 +781,7 @@ def search(
             index_root = path
         else:
             # Require explicit build
-            err_console.print("[red]Error:[/] No index found. Run 'hhg build' first.")
+            err_console.print("[red]✗[/] No index found. Run 'hhg build' first.")
             err_console.print("[dim]Tip: Set HHG_AUTO_BUILD=1 for auto-indexing[/]")
             raise typer.Exit(EXIT_ERROR)
 
@@ -813,7 +813,7 @@ def search(
                 else:
                     index.update(files)
         except RuntimeError as e:
-            err_console.print(f"[red]Error:[/] {e}")
+            err_console.print(f"[red]✗[/] {e}")
             # Provide context-aware help if using a parent index
             if index_root != search_path:
                 err_console.print("\nOptions:")
@@ -858,7 +858,7 @@ def status(path: Path = typer.Argument(Path("."), help="Directory")):
     path = path.resolve()
 
     if not index_exists(path):
-        console.print("No index found. Run 'hhg build' to create.")
+        console.print("[yellow]![/] No index. Run 'hhg build' to create.")
         raise typer.Exit()
 
     index = SemanticIndex(path)
@@ -871,7 +871,7 @@ def status(path: Path = typer.Argument(Path("."), help="Directory")):
         files = scan(str(path), ".", include_hidden=False)
         changed, deleted = index.get_stale_files(files)
     except RuntimeError as e:
-        err_console.print(f"[red]Error:[/] {e}")
+        err_console.print(f"[red]✗[/] {e}")
         raise typer.Exit(EXIT_ERROR)
     stale_count = len(changed) + len(deleted)
 
@@ -940,7 +940,7 @@ def build(
             changed, deleted = index.get_stale_files(files)
         except RuntimeError as e:
             # Version mismatch or other manifest error
-            err_console.print(f"[red]Error:[/] {e}")
+            err_console.print(f"[red]✗[/] {e}")
             # Provide context-aware help if we redirected to a parent
             if path != original_path:
                 err_console.print("\nOptions:")
@@ -1022,7 +1022,7 @@ def build(
                 f"from {stats['files']} files ({index_time:.1f}s)"
             )
             if stats.get("errors", 0) > 0:
-                err_console.print(f"[yellow]Warning:[/] {stats['errors']} files failed to index")
+                err_console.print(f"[yellow]![/] {stats['errors']} files failed to index")
         return
 
     # Clean up subdir indexes (now superseded by parent) - for non-fresh builds
@@ -1088,7 +1088,7 @@ def clean(
                 # Don't allow cleaning the parent root via subdir path
                 if not rel_prefix or rel_prefix == ".":
                     err_console.print(
-                        f"[yellow]Hint:[/] Use 'hhg clean {parent}' to delete the parent index"
+                        f"[dim]Hint: Use 'hhg clean {parent}' to delete the parent index[/]"
                     )
                 else:
                     index = SemanticIndex(parent)
@@ -1116,7 +1116,7 @@ def clean(
                 console.print(f"[green]✓[/] Deleted ./{rel_path}/.hhg/")
                 deleted_count += 1
             except Exception as e:
-                err_console.print(f"[red]Error:[/] Failed to delete {idx_path}: {e}")
+                err_console.print(f"[red]✗[/] Failed to delete {idx_path}: {e}")
 
     if deleted_count == 0:
         err_console.print("[dim]No indexes to delete[/]")
@@ -1168,7 +1168,7 @@ def model_install():
             )
         console.print(f"[green]✓[/] Model installed: {MODEL_REPO}")
     except Exception as e:
-        err_console.print(f"[red]Error:[/] Failed to download model: {e}")
+        err_console.print(f"[red]✗[/] Failed to download model: {e}")
         err_console.print("[dim]Check network connection and try again[/]")
         raise typer.Exit(EXIT_ERROR)
 
