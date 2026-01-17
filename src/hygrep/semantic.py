@@ -8,12 +8,12 @@ import os
 from collections.abc import Callable
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
-
 import omendb
 
 from .embedder import DIMENSIONS, get_embedder
 from .extractor import ContextExtractor
+
+logger = logging.getLogger(__name__)
 
 INDEX_DIR = ".hhg"
 VECTORS_DIR = "vectors"

@@ -19,6 +19,7 @@ from ._common import (
     MODEL_REPO,
     MODEL_VERSION,
     QUERY_CACHE_MAX_SIZE,
+    QUERY_PREFIX,
     TOKENIZER_FILE,
     batch_embed,
     cached_embed_one,
