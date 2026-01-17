@@ -5,7 +5,14 @@ import threading
 
 import numpy as np
 
-from .embedder import DIMENSIONS, MAX_LENGTH, MODEL_REPO, QUERY_PREFIX
+from ._common import (
+    DIMENSIONS,
+    MAX_LENGTH,
+    MODEL_REPO,
+    QUERY_CACHE_MAX_SIZE,
+    QUERY_PREFIX,
+    evict_cache,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +30,9 @@ except ImportError:
 # MLX batch size (larger than ONNX due to Metal efficiency)
 BATCH_SIZE = 64
 
+# Module-level lock for thread-safe model loading with monkey-patching
+_model_load_lock = threading.Lock()
+
 
 def _load_model_relaxed(path_or_hf_repo: str):
     """Load model with strict=False to handle models without pooler layer.
@@ -30,20 +40,23 @@ def _load_model_relaxed(path_or_hf_repo: str):
     snowflake-arctic-embed-s doesn't include pooler weights (trained with
     add_pooling_layer=False), but the BERT model class expects them.
     Using strict=False allows loading without the pooler weights.
+
+    Thread-safe: Uses module-level lock to prevent race conditions when
+    patching nn.Module.load_weights.
     """
     model_path = get_model_path(path_or_hf_repo)
 
-    # Load model normally but patch load_weights to use strict=False
-    original_load_weights = nn.Module.load_weights
+    with _model_load_lock:
+        original_load_weights = nn.Module.load_weights
 
-    def load_weights_relaxed(self, file_or_weights, strict=True):
-        return original_load_weights(self, file_or_weights, strict=False)
+        def load_weights_relaxed(self, file_or_weights, strict=True):
+            return original_load_weights(self, file_or_weights, strict=False)
 
-    nn.Module.load_weights = load_weights_relaxed
-    try:
-        model = load_model(model_path, lazy=False, path_to_repo=path_or_hf_repo)
-    finally:
-        nn.Module.load_weights = original_load_weights
+        nn.Module.load_weights = load_weights_relaxed
+        try:
+            model = load_model(model_path, lazy=False, path_to_repo=path_or_hf_repo)
+        finally:
+            nn.Module.load_weights = original_load_weights
 
     tokenizer = load_tokenizer(model_path)
     return model, tokenizer
@@ -79,7 +92,8 @@ class MLXEmbedder:
             if self._model is not None:
                 return
             self._model, self._tokenizer_wrapper = _load_model_relaxed(MODEL_REPO)
-            # Access underlying tokenizer - check for API changes
+            # Access underlying tokenizer - fragile private API, but necessary
+            # See: https://github.com/Blaizzy/mlx-embeddings for updates
             if not hasattr(self._tokenizer_wrapper, "_tokenizer"):
                 raise RuntimeError(
                     "mlx_embeddings API changed: _tokenizer attribute missing. "
@@ -89,7 +103,6 @@ class MLXEmbedder:
 
     def _embed_one(self, text: str) -> np.ndarray:
         """Generate embedding for a single text using CLS pooling."""
-        # Tokenize
         encoded = self._tokenizer(
             [text],
             padding=True,
@@ -98,24 +111,22 @@ class MLXEmbedder:
             return_tensors="np",
         )
 
-        # Convert to MLX arrays
         input_ids = mx.array(encoded["input_ids"])
         attention_mask = mx.array(encoded["attention_mask"])
 
-        # Run model
         outputs = self._model(input_ids, attention_mask=attention_mask)
 
         # CLS pooling - take first token (snowflake-arctic-embed uses CLS)
         embedding = np.array(outputs.last_hidden_state[0, 0, :])
-        norm = np.linalg.norm(embedding)
-        if norm > 1e-9:
-            embedding = embedding / norm
+
+        # L2 normalize (consistent with _embed_batch_safe)
+        norm = np.linalg.norm(embedding, keepdims=True)
+        embedding = embedding / np.maximum(norm, 1e-9)
 
         return embedding.astype(np.float32)
 
     def _embed_batch_safe(self, texts: list[str]) -> np.ndarray:
         """Generate embeddings for texts of similar length using CLS pooling."""
-        # Tokenize using transformers tokenizer
         encoded = self._tokenizer(
             texts,
             padding=True,
@@ -124,11 +135,9 @@ class MLXEmbedder:
             return_tensors="np",
         )
 
-        # Convert to MLX arrays
         input_ids = mx.array(encoded["input_ids"])
         attention_mask = mx.array(encoded["attention_mask"])
 
-        # Run model
         outputs = self._model(input_ids, attention_mask=attention_mask)
 
         # CLS pooling - take first token (snowflake-arctic-embed uses CLS)
@@ -162,7 +171,7 @@ class MLXEmbedder:
             buckets.setdefault(bucket, []).append(idx)
 
         # Process each bucket
-        results = [None] * len(texts)
+        results: list[np.ndarray | None] = [None] * len(texts)
         for bucket_indices in buckets.values():
             bucket_texts = [texts[i] for i in bucket_indices]
             try:
@@ -193,12 +202,10 @@ class MLXEmbedder:
             return np.array([], dtype=np.float32).reshape(0, DIMENSIONS)
 
         self._ensure_loaded()
-        batch_size = self.batch_size
 
-        # Process in batches
         all_embeddings = []
-        for i in range(0, len(texts), batch_size):
-            batch = texts[i : i + batch_size]
+        for i in range(0, len(texts), self.batch_size):
+            batch = texts[i : i + self.batch_size]
             all_embeddings.append(self._embed_batch(batch))
 
         return np.vstack(all_embeddings)
@@ -216,15 +223,12 @@ class MLXEmbedder:
         if use_cache and text in self._query_cache:
             return self._query_cache[text]
 
-        # Add query prefix for better retrieval (snowflake-arctic-embed)
         prefixed_text = QUERY_PREFIX + text
         embedding = self._embed_batch([prefixed_text])[0]
 
         if use_cache:
-            if len(self._query_cache) >= 128:
-                keys = list(self._query_cache.keys())[: len(self._query_cache) // 2]
-                for k in keys:
-                    del self._query_cache[k]
+            if len(self._query_cache) >= QUERY_CACHE_MAX_SIZE:
+                evict_cache(self._query_cache)
             self._query_cache[text] = embedding
 
         return embedding
