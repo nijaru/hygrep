@@ -1,7 +1,6 @@
 """Embedder - ONNX text embeddings for semantic search."""
 
 import os
-import sys
 import threading
 
 import numpy as np
@@ -12,16 +11,20 @@ from tokenizers import Tokenizer
 # Suppress ONNX Runtime warnings
 ort.set_default_logger_severity(3)
 
-# gte-modernbert-base: 79.3% CoIR code retrieval, Apache 2.0
-# Standard ModernBERT architecture - works with MLX out of the box
-MODEL_REPO = "Alibaba-NLP/gte-modernbert-base"
-MODEL_FILE_FP16 = "onnx/model_fp16.onnx"  # ~300 MB - for GPU
-MODEL_FILE_INT8 = "onnx/model_int8.onnx"  # ~150 MB - for CPU
+# snowflake-arctic-embed-s: 33M params, 384 dims, Apache 2.0
+# BERT-based architecture (e5-small-unsupervised), fast inference
+# ViDoRe V3: competitive with 100M+ models despite small size
+MODEL_REPO = "Snowflake/snowflake-arctic-embed-s"
+MODEL_FILE_FP16 = "onnx/model_fp16.onnx"  # ~67 MB - for GPU
+MODEL_FILE_INT8 = "onnx/model_int8.onnx"  # ~34 MB - for CPU
 TOKENIZER_FILE = "tokenizer.json"
-DIMENSIONS = 768
-MAX_LENGTH = 512  # gte-modernbert supports 8K but 512 is enough for code blocks
-BATCH_SIZE = 32
-MODEL_VERSION = "gte-modernbert-base-v1"  # For manifest migration tracking
+DIMENSIONS = 384
+MAX_LENGTH = 512  # snowflake supports 512 tokens
+BATCH_SIZE = 64  # smaller model allows larger batches
+MODEL_VERSION = "snowflake-arctic-embed-s-v1"  # For manifest migration tracking
+
+# Query prefix for optimal retrieval (documents don't need prefix)
+QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 
 
 def _get_best_provider_and_model() -> tuple[list[str], str]:
@@ -60,16 +63,10 @@ def _get_best_provider_and_model() -> tuple[list[str], str]:
     )
 
 
-# Check for MLX availability on macOS
-
+# MLX disabled for snowflake-arctic-embed-s
+# mlx-embeddings uses mean pooling for BERT, but we need CLS pooling
+# TODO: Re-enable once mlx-embeddings supports CLS pooling or we implement it
 _MLX_AVAILABLE = False
-if sys.platform == "darwin":
-    try:
-        from .mlx_embedder import MLX_AVAILABLE, MLXEmbedder
-
-        _MLX_AVAILABLE = MLX_AVAILABLE
-    except ImportError:
-        pass
 
 # Global embedder instance for caching across calls (useful for library usage)
 _global_embedder: "Embedder | None" = None
@@ -206,12 +203,9 @@ class Embedder:
             idx = self._output_names.index("sentence_embedding")
             embeddings = outputs[idx]
         else:
-            # Mean pooling over token embeddings
+            # CLS pooling - take first token (snowflake-arctic-embed uses CLS)
             token_embeddings = outputs[0]  # (batch, seq_len, hidden_size)
-            mask_expanded = attention_mask[:, :, np.newaxis].astype(np.float32)
-            sum_embeddings = np.sum(token_embeddings * mask_expanded, axis=1)
-            sum_mask = np.sum(mask_expanded, axis=1)
-            embeddings = sum_embeddings / np.maximum(sum_mask, 1e-9)
+            embeddings = token_embeddings[:, 0, :]  # CLS token at position 0
 
         # L2 normalize
         norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
@@ -256,7 +250,9 @@ class Embedder:
         if use_cache and text in self._query_cache:
             return self._query_cache[text]
 
-        embedding = self._embed_batch([text])[0]
+        # Add query prefix for better retrieval (snowflake-arctic-embed)
+        prefixed_text = QUERY_PREFIX + text
+        embedding = self._embed_batch([prefixed_text])[0]
 
         # Cache result (limit cache size to avoid memory bloat)
         if use_cache:

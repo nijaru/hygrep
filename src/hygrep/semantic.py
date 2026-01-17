@@ -15,7 +15,7 @@ from .extractor import ContextExtractor
 INDEX_DIR = ".hhg"
 VECTORS_DIR = "vectors"
 MANIFEST_FILE = "manifest.json"
-MANIFEST_VERSION = 6  # v6: gte-modernbert-base model (768 dims)
+MANIFEST_VERSION = 7  # v7: snowflake-arctic-embed-s model (384 dims)
 
 # Block types that are documentation, not code
 DOC_BLOCK_TYPES = {"text", "section"}
@@ -254,10 +254,11 @@ class SemanticIndex:
             version = data.get("version", 1)
             files = data.get("files", {})
 
+            # v6 -> v7: model changed from gte-modernbert to snowflake-arctic-embed-s
             # v5 -> v6: model changed from jina-code to gte-modernbert
             # v4 -> v5: embedding model changed (256 -> 768 dims)
             # Requires full rebuild - embeddings are incompatible
-            if version < 6 and files:
+            if version < 7 and files:
                 raise IndexNeedsRebuild()
 
             # Migrate v1 -> v2: hash string -> dict
