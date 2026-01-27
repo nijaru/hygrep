@@ -217,3 +217,36 @@ See `ai/DESIGN-v2.md` for full design.
 **Quantization:** Not needed - 33MB is already small. INT8 could hurt reranking quality where precision matters more than embedding.
 
 **Status:** Not yet implemented. Code boosts handle most cases well.
+
+## 12. Embedding Model Strategy (2026-01-26)
+
+**Decision:** Stay with snowflake-arctic-embed-s, monitor ColBERT.
+
+**Context:**
+
+- Current model (22M, 384 dims) provides good speed/quality balance
+- MLX backend gives 2.57x speedup on Apple Silicon
+- New candidates exist but none are compelling upgrades
+
+**Evaluated Options:**
+
+| Model              | Verdict                                      |
+| ------------------ | -------------------------------------------- |
+| Granite Small R2   | 2x params, 16x context, has code benchmarks  |
+| MongoDB LEAF       | Same size, 768 dims, distilled from arctic-m |
+| mxbai-edge-colbert | Best quality (+4 pts) but blocked on omendb  |
+
+**Why not switch now:**
+
+1. Current model works well with hybrid search (semantic + BM25)
+2. No user complaints about quality
+3. ColBERT is the real quality unlock, not single-vector upgrades
+4. Switching models requires index rebuild for all users
+
+**When to reconsider:**
+
+- omendb adds multi-vector support → evaluate ColBERT
+- User feedback indicates quality issues
+- New small model with significant quality gains
+
+**Rationale:** Stability over marginal gains. Wait for infrastructure (omendb ColBERT) before model changes.
