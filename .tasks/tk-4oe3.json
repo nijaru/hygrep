@@ -1,0 +1,19 @@
+{
+  "project": "tk",
+  "ref": "4oe3",
+  "title": "BM25 code-aware tokenization",
+  "description": "Pre-split camelCase/snake_case in embedding text before calling index_text(). getUserProfile -> 'getUserProfile get User Profile'. Apply same splitting to search queries. Zero inference cost, improves keyword recall for identifier-style queries. Long-term: request custom tantivy tokenizer support in omendb TextSearchConfig.",
+  "status": "open",
+  "priority": 2,
+  "labels": [],
+  "assignees": [],
+  "parent": null,
+  "blocked_by": [],
+  "estimate": null,
+  "due_date": null,
+  "logs": [],
+  "created_at": "2026-02-14T22:48:39.798Z",
+  "updated_at": "2026-02-14T22:48:39.798Z",
+  "completed_at": null,
+  "external": {}
+}
