@@ -1,0 +1,19 @@
+{
+  "project": "tk",
+  "ref": "4f2n",
+  "title": "Release hhg on crates.io and npm",
+  "description": "Publish Rust binary to crates.io. Explore npm distribution via cargo-binstall or wasm. Part of Phase 8 (distribution).",
+  "status": "open",
+  "priority": 3,
+  "labels": [],
+  "assignees": [],
+  "parent": null,
+  "blocked_by": [],
+  "estimate": null,
+  "due_date": null,
+  "logs": [],
+  "created_at": "2026-02-14T21:13:55.005Z",
+  "updated_at": "2026-02-14T21:13:55.005Z",
+  "completed_at": null,
+  "external": {}
+}

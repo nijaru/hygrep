@@ -11,38 +11,50 @@
 
 **Status:** Phases 1-6 complete. Compiles, CLI works, all commands implemented.
 
-**Branch:** Merged to `main`. 3 commits, 25 files, ~7600 lines.
-
 **Architecture:**
 
 ```
-Build:  Scan (ignore crate) -> Extract (tree-sitter, 25 langs) -> Embed (ort, LateOn-Code-edge INT8) -> Store (omendb multi-vector)
-Search: Embed query -> search_multi_with_text (BM25 + MuVERA MaxSim) -> Code-aware boost -> Results
+Build:  Scan (ignore crate) -> Extract (tree-sitter, 25 langs) -> Embed (ort, LateOn-Code-edge INT8) -> Store (omendb multi-vector) + index_text (BM25)
+Search: Embed query -> search_multi_with_text (BM25 candidates + MuVERA MaxSim rerank) -> Code-aware boost -> Results
 ```
 
-**Key decisions:**
+## Bugs Fixed This Session
 
-- Single crate (lib + bin), not workspace
-- Multi-vector embeddings (48d/token, all tokens kept)
-- Manifest v8 (clean break from Python v1-v7)
-- omendb `search_multi_with_text` for hybrid search
-- ort 2.0.0-rc.11 with `Mutex<Session>` for `&self` compatibility
+- **BM25 text never indexed:** `store()` for multi-vector doesn't call `index_text()`. `search_multi_with_text()` returned empty silently. Fixed: added `index_text()` to omendb, called after `store()` in hhg. Filed bug report for omendb to add `store_with_text()`.
+- **target/ not gitignored:** Rust build artifacts scanned, inflating index from 69 to 1165 files. Fixed.
+
+## Benchmark (vs competitor, hygrep repo)
+
+| Metric | Competitor | hhg | Notes |
+|--------|-----------|-----|-------|
+| Build | 6.1s (63 files) | 10.8s (69 files, 801 blocks) | hhg indexes 5x more data |
+| Search | 1.0-1.1s | 0.27-0.44s | **hhg 2.5-4x faster** |
+| Index size | 14MB | 38MB | Multi-vector + BM25 text |
 
 ## Remaining Work
 
-### Phase 7: Polish & Parity (tk-we4e)
+### Priority 1: Correctness (tk-zvga)
 
-- Verify all CLI flags/output match Python
-- Performance benchmark vs Python
-- Test on real codebases
+- Systematic edge case verification post-rewrite
+- Search was silently broken until this session — what else is wrong?
+- Test: incremental update, file deletion, merge, stale detection, file refs, all output formats, exit codes
+
+### Priority 2: Polish & Parity (tk-we4e)
+
+- Verify CLI flags/output match Python version
 - Integration tests with assert_cmd
 
-### Phase 8: Distribution (tk-8yhl)
+### Priority 3: Profile build (tk-kwzw), Rename (tk-uwun), Distribution (tk-4f2n, tk-8yhl)
 
-- `cargo install` from git
-- GitHub Actions CI (macOS-arm64, linux-x64)
-- cargo-dist for binary releases
-- Update README/CLAUDE.md
+- Build is 1.3x slower while indexing 5x more — already good, profile for low-hanging fruit
+- Rename to omgrep (crate) / omg (binary) — ties branding to omendb
+- crates.io + npm + cargo-dist
+
+### Future: SPLADE sparse vectors
+
+- Wait for omendb native sparse support
+- Evaluate `ibm-granite/granite-embedding-30m-sparse` (30M, Apache 2.0, 50.8 nDCG)
+- Near-term: improve BM25 tokenization with camelCase/snake_case splitting in tantivy
 
 ## Key Files (Rust)
 
@@ -58,6 +70,8 @@ Search: Embed query -> search_multi_with_text (BM25 + MuVERA MaxSim) -> Code-awa
 
 ## Research
 
-| File                                   | Topic                |
-| -------------------------------------- | -------------------- |
-| `research/multi-vector-code-search.md` | ColBERT/multi-vector |
+| File                                   | Topic                              |
+| -------------------------------------- | ---------------------------------- |
+| `research/multi-vector-code-search.md` | ColBERT/multi-vector model eval    |
+| `tmp/splade-research.md`               | SPLADE vs BM25 for code (gitignored) |
+| `tmp/twitter-post-draft.md`            | omendb marketing draft (gitignored)  |

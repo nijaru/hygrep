@@ -4,6 +4,9 @@
 build/
 .build/
 
+# Rust
+target/
+
 # Python
 __pycache__/
 *.pyc

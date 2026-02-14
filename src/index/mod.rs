@@ -177,6 +177,11 @@ impl SemanticIndex {
                 });
 
                 store.store(&block.id, tokens, metadata)?;
+
+                // Index text for BM25 hybrid search
+                let embedding_text = &prepared[start + idx].text;
+                store.index_text(&block.id, embedding_text)?;
+
                 stats.blocks += 1;
             }
         }
