@@ -10,7 +10,7 @@ hhg "authentication flow" ./src
 
 ## What it does
 
-Search code using natural language. Combines multi-vector semantic embeddings with BM25 keyword matching for accurate results:
+Search code using natural language. Instead of matching exact strings like grep, hhg understands the meaning of your query and finds relevant code — even when the words don't match.
 
 ```bash
 $ hhg build ./src
@@ -38,8 +38,6 @@ grep finds exact text. hhg understands what you're looking for.
 | "authentication" | Strings containing "auth" | `login()`, `verify_token()`   |
 | "database"       | Config files, comments    | `Connection`, `query()`, `Db` |
 
-**Hybrid search** combines multi-vector semantic embeddings (ColBERT-style token matching via MuVERA) with BM25 keyword matching. Best of both worlds.
-
 Use grep/ripgrep for exact strings (`TODO`, `FIXME`, import statements).
 Use hhg when you want implementations, not mentions.
 
@@ -52,23 +50,22 @@ git clone https://github.com/nijaru/hygrep && cd hygrep
 cargo install --path .
 ```
 
-The embedding model downloads on first use (~17MB).
+The embedding model (~17MB) downloads automatically on first use.
 
 ## Usage
 
 ```bash
-hhg build [path]                # Build/update index (required first)
-hhg "query" [path]              # Semantic search
-hhg file.rs#func_name           # Find similar code (by name)
-hhg file.rs:42                  # Find similar code (by line)
-hhg status [path]               # Check index status
+hhg build [path]                # Build index (required before searching)
+hhg "query" [path]              # Search with natural language
+hhg file.rs#func_name           # Find code similar to a named block
+hhg file.rs:42                  # Find code similar to a specific line
+hhg status [path]               # Show index info
 hhg list [path]                 # List all indexes under path
 hhg clean [path]                # Delete index
-hhg clean [path] -r             # Delete index and all sub-indexes
 
 # Options
-hhg -n 5 "error handling" .     # Limit results
-hhg --json "auth" .             # JSON output for scripts/agents
+hhg -n 5 "error handling" .     # Limit to 5 results
+hhg --json "auth" .             # JSON output (for scripts/agents)
 hhg -l "config" .               # List matching files only
 hhg -t py,js "api" .            # Filter by file type
 hhg --exclude "tests/*" "fn" .  # Exclude patterns
@@ -76,17 +73,15 @@ hhg --exclude "tests/*" "fn" .  # Exclude patterns
 
 ## How it Works
 
-```
-Build:  Scan (gitignore-aware) -> Extract (tree-sitter AST) -> Embed (ONNX, 48d/token) -> Store (omendb multi-vector + BM25)
-Search: Embed query -> Hybrid search (BM25 candidates + MuVERA MaxSim rerank) -> Code-aware boost -> Results
-```
+hhg uses a hybrid approach — combining AI understanding with keyword matching.
 
-- **Multi-vector embeddings:** Each code block gets per-token embeddings (ColBERT-style), not a single vector. Token-level matching captures structural patterns that CLS pooling loses.
-- **MuVERA:** Compresses variable-length token sequences into fixed-dimensional encodings for HNSW index, then MaxSim reranks candidates for precise scoring.
-- **BM25 pre-filtering:** tantivy-based keyword search generates candidates cheaply, avoiding brute-force comparison across all blocks.
-- **Code-aware boost:** Post-search heuristics for identifier matching (camelCase/snake_case splitting, exact name match, type-aware ranking).
+**Building the index:** hhg parses your code into logical blocks (functions, classes, methods) using tree-sitter, then creates two search indexes:
+1. **Semantic embeddings** — AI-generated representations that capture the *meaning* of each code block, enabling searches like "authentication flow" to find `login()` and `verify_token()`.
+2. **Keyword index** — traditional text search (BM25) for exact term matching, so searching "getUserProfile" still finds that exact function.
 
-All running on CPU with INT8 quantized embeddings. No GPU, no server, just a local binary.
+**Searching:** When you search, hhg first uses keywords to find candidate blocks, then uses semantic similarity to rerank them. Code-aware heuristics boost results where identifier names match your query. This hybrid approach is both fast (270-440ms) and accurate.
+
+Everything runs locally on CPU with a small quantized model. No GPU, no server, no cloud.
 
 Built on [omendb](https://github.com/nijaru/omendb).
 
@@ -95,6 +90,20 @@ Built on [omendb](https://github.com/nijaru/omendb).
 **Code** (25 languages): Bash, C, C++, C#, CSS, Elixir, Go, HCL, HTML, Java, JavaScript, JSON, Kotlin, Lua, PHP, Python, Ruby, Rust, Swift, TOML, TypeScript, YAML, Zig
 
 **Text**: Markdown, plain text — smart chunking with header context
+
+## Technical Details
+
+For those interested in the internals:
+
+- **Multi-vector embeddings:** Each code block gets per-token embeddings (ColBERT-style via [MuVERA](https://arxiv.org/abs/2405.19504)), not a single vector. Token-level matching captures structural patterns that pooled single vectors lose.
+- **Hybrid retrieval:** BM25 (tantivy) generates keyword candidates, MuVERA MaxSim reranks them using token-level similarity.
+- **AST extraction:** tree-sitter parses code into semantic blocks (functions, classes, methods), giving precise results instead of whole-file matches.
+- **Code-aware boost:** Post-search heuristics for camelCase/snake_case identifier matching, type-aware ranking, and file path relevance.
+
+```
+Build:  Scan (gitignore-aware) -> Extract (tree-sitter AST) -> Embed (ONNX INT8, 48d/token) -> Store (omendb multi-vector + BM25)
+Search: Embed query -> BM25 candidates -> MuVERA MaxSim rerank -> Code-aware boost -> Results
+```
 
 ## License
 
