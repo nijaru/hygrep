@@ -71,8 +71,8 @@ impl SemanticIndex {
         let mut store = self.open_or_create_store()?;
         store.enable_text_search()?;
 
-        // Identify files needing processing
-        let mut to_process = Vec::new();
+        // Identify files needing processing (borrow content, don't clone)
+        let mut to_process: Vec<(&Path, &str, String, String)> = Vec::new();
         for (path, content) in files {
             let rel_path = self.to_relative(path);
             let file_hash = hash_content(content);
@@ -89,7 +89,7 @@ impl SemanticIndex {
                 stats.deleted += entry.blocks.len();
             }
 
-            to_process.push((path.clone(), content.clone(), rel_path, file_hash));
+            to_process.push((path.as_path(), content.as_str(), rel_path, file_hash));
         }
 
         if to_process.is_empty() {
@@ -111,32 +111,37 @@ impl SemanticIndex {
             })
             .collect();
 
-        // Flatten and prepare for embedding
-        let mut flat_blocks: Vec<(Block, String)> = Vec::new();
-        for (blocks, _rel_path, file_hash) in &all_blocks {
+        // Flatten blocks, compute embedding text once, track file stats
+        struct PreparedBlock {
+            block: Block,
+            text: String,
+        }
+
+        let mut prepared: Vec<PreparedBlock> = Vec::new();
+        for (blocks, _rel_path, _file_hash) in &all_blocks {
             if blocks.is_empty() {
                 stats.errors += 1;
             } else {
                 stats.files += 1;
             }
             for block in blocks {
-                flat_blocks.push((block.clone(), file_hash.clone()));
+                let text = block.embedding_text();
+                prepared.push(PreparedBlock {
+                    block: block.clone(),
+                    text,
+                });
             }
         }
 
-        if flat_blocks.is_empty() {
+        if prepared.is_empty() {
             manifest.save(&self.index_dir)?;
             return Ok(stats);
         }
 
-        // Sort by text length for better batching
-        flat_blocks.sort_by_key(|(b, _)| b.embedding_text().len());
+        // Sort by text length for better batching (avoids recomputing embedding_text)
+        prepared.sort_by_key(|p| p.text.len());
 
-        let total = flat_blocks.len();
-        let texts: Vec<String> = flat_blocks
-            .iter()
-            .map(|(b, _)| b.embedding_text())
-            .collect();
+        let total = prepared.len();
 
         // Embed in batches
         for start in (0..total).step_by(batch_size) {
@@ -149,16 +154,18 @@ impl SemanticIndex {
                 );
             }
 
-            let batch_refs: Vec<&str> = texts[start..end].iter().map(|s| s.as_str()).collect();
+            let batch_refs: Vec<&str> = prepared[start..end]
+                .iter()
+                .map(|p| p.text.as_str())
+                .collect();
             let token_embeddings = self.embedder.embed_documents(&batch_refs)?;
 
             for (idx, token_emb) in token_embeddings.embeddings.iter().enumerate() {
-                let (block, _file_hash) = &flat_blocks[start + idx];
+                let block = &prepared[start + idx].block;
 
                 // Convert ndarray to Vec<Vec<f32>> for omendb
-                let tokens: Vec<Vec<f32>> = (0..token_emb.nrows())
-                    .map(|r| token_emb.row(r).to_vec())
-                    .collect();
+                let tokens: Vec<Vec<f32>> =
+                    token_emb.rows().into_iter().map(|r| r.to_vec()).collect();
 
                 let metadata = serde_json::json!({
                     "file": block.file,

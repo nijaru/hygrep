@@ -5,7 +5,7 @@ use ndarray::Array2;
 use ort::value::TensorRef;
 
 use super::tokenizer::TokenizerWrapper;
-use super::{Embedder, TokenEmbeddings, BATCH_SIZE, MODEL_FILE, MODEL_REPO, TOKEN_DIM};
+use super::{Embedder, TokenEmbeddings, BATCH_SIZE, MODEL_FILE, MODEL_REPO};
 
 /// ONNX-based embedder for LateOn-Code-edge.
 pub struct OnnxEmbedder {
@@ -77,20 +77,14 @@ impl OnnxEmbedder {
                 .filter(|&&m| m == 1)
                 .count();
 
-            let mut tokens = Array2::zeros((num_tokens, TOKEN_DIM));
-            for j in 0..num_tokens {
-                for k in 0..TOKEN_DIM {
-                    tokens[[j, k]] = view[[i, j, k]];
-                }
-                // L2 normalize each token vector
-                let norm: f32 = (0..TOKEN_DIM)
-                    .map(|k| tokens[[j, k]].powi(2))
-                    .sum::<f32>()
-                    .sqrt();
+            // Slice the output view directly — avoids element-by-element copy
+            let mut tokens = view.slice(ndarray::s![i, 0..num_tokens, ..]).to_owned();
+
+            // L2 normalize each token vector
+            for mut row in tokens.rows_mut() {
+                let norm: f32 = row.dot(&row).sqrt();
                 if norm > 1e-9 {
-                    for k in 0..TOKEN_DIM {
-                        tokens[[j, k]] /= norm;
-                    }
+                    row /= norm;
                 }
             }
             result.push(tokens);
