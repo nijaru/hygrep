@@ -19,18 +19,19 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2025-12-04
-          components: clippy
+          components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
 
       - name: Check omendb dependency
         run: |
-          # CI uses published omendb from crates.io
-          # Local dev uses path dependency — override for CI
           if grep -q 'path = ' Cargo.toml; then
-            echo "::warning::Cargo.toml has path dependencies — skipping CI build"
+            echo "::warning::Cargo.toml has path dependencies — CI requires crates.io deps"
             echo "SKIP_BUILD=true" >> $GITHUB_ENV
           fi
+
+      - name: Check formatting
+        run: cargo fmt --check
 
       - name: Build
         if: env.SKIP_BUILD != 'true'

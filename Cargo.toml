@@ -5,6 +5,9 @@ edition = "2021"
 license = "MIT"
 description = "Semantic code search — multi-vector embeddings + BM25"
 repository = "https://github.com/nijaru/omengrep"
+homepage = "https://github.com/nijaru/omengrep"
+keywords = ["search", "semantic", "code", "grep", "embeddings"]
+categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
 name = "og"

@@ -1,23 +1,6 @@
 # Rust
 target/
 
-# Python (legacy, may still exist locally)
-__pycache__/
-*.pyc
-.venv/
-.ruff_cache/
-dist/
-*.egg-info
-*.so
-
-# Mojo / Pixi (legacy)
-.magic/
-.pixi/
-build/
-.build/
-uv.lock
-pixi.lock
-
 # OS
 .DS_Store
 
