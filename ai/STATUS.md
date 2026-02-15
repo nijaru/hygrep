@@ -25,10 +25,12 @@ Search: Split query identifiers -> Embed query -> search_multi_with_text (BM25 c
 
 ## Remaining Work
 
-### Distribution (tk-4f2n)
+### Publish to crates.io (tk-4f2n)
 
 - Blocked on omendb crates.io publish (currently path dependency)
-- crates.io + cargo-dist for binary releases
+- Release pipeline ready: `.github/workflows/release.yml` (6-stage)
+- Homebrew formula ready: `nijaru/homebrew-tap/Formula/og.rb`
+- Tag `v0.1.0` when unblocked
 
 ### Repo Rename
 
@@ -42,19 +44,18 @@ Search: Split query identifiers -> Embed query -> search_multi_with_text (BM25 c
 
 ## Completed
 
+- Release pipeline (6-stage CI/CD, Homebrew formula)
 - Renamed: package=omengrep, binary=og, index dir=.og/, env=OG_AUTO_BUILD
-- BM25 code-aware tokenization (camelCase/snake_case splitting, +35% NDCG expected)
+- BM25 code-aware tokenization (camelCase/snake_case splitting)
 - Fixed double-lock bug in incremental update
 - Fixed invalid lookaround regex in text.rs
-- Fixed boost.rs camelCase splitting (was lowercasing before split — no-op)
-- Correctness verification (all CLI features tested)
+- Fixed boost.rs camelCase splitting
 - Integration tests with assert_cmd (14 tests)
-- CI workflow (build/test/clippy)
-- Build profiling (no bottlenecks at current scale)
+- CI workflow (build/test/clippy/fmt)
 
 ## omendb Requests
 
-1. **`store_with_text()`** for multi-vector stores — filed in `omendb/cloud/multi-vector-text-indexing-bug.md`
+1. **`store_with_text()`** for multi-vector stores
 2. **Custom tantivy tokenizer** in `TextSearchConfig` — for camelCase/snake_case splitting
 3. **Native sparse vector support** — for future SPLADE integration
 4. **tantivy lru vulnerability** — filed in `omendb/tantivy-lru-vulnerability.md`

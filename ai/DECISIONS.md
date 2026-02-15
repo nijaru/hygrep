@@ -9,6 +9,7 @@
 **Choice:** Single crate (lib + bin), Rust nightly (portable_simd for omendb).
 
 **Trade-offs:**
+
 - Lose PyPI distribution — gain cargo install, native binary
 - Lose Mojo scanner — gain ignore crate (same underlying behavior)
 - No index migration — manifest v8 is a clean break
@@ -22,12 +23,14 @@
 **Choice:** LateOn-Code-edge (17M params, 48d/token, Apache 2.0, ONNX INT8). omendb's MuVERA compresses variable-length token sequences into fixed-dimensional encodings for HNSW, then MaxSim reranks candidates.
 
 **Why this model:**
+
 - Code-specific training data
 - 48d/token is small enough for local CPU inference
 - Apache 2.0 license
 - INT8 quantization available
 
 **Alternatives rejected:**
+
 - answerai-colbert-small-v1 (96d — 2x memory per token)
 - snowflake-arctic-embed-s (single-vector, no token-level matching)
 - granite-embedding-30m (single-vector, larger but no quality gain over multi-vector)
@@ -36,9 +39,10 @@
 
 **Decision:** Two-stage retrieval: BM25 candidate generation, then MuVERA MaxSim reranking.
 
-**Context:** Brute-force MaxSim over all documents is O(n * seq_len). BM25 narrows candidates cheaply. omendb's `search_multi_with_text()` implements this as a single API call.
+**Context:** Brute-force MaxSim over all documents is O(n \* seq_len). BM25 narrows candidates cheaply. omendb's `search_multi_with_text()` implements this as a single API call.
 
 **Architecture:**
+
 ```
 Query -> BM25 (tantivy) candidates -> MuVERA MaxSim rerank -> Code-aware boost -> Results
 ```
@@ -54,6 +58,7 @@ Query -> BM25 (tantivy) candidates -> MuVERA MaxSim rerank -> Code-aware boost -
 **Implementation:** 25 language parsers compiled in. Each language has tree-sitter queries for extractable node types (functions, classes, methods, structs, interfaces, enums, traits, impls).
 
 **Trade-offs:**
+
 - More blocks per file = more embeddings = slower build
 - But: more precise search results, faster search (smaller docs = faster MaxSim)
 
@@ -62,6 +67,7 @@ Query -> BM25 (tantivy) candidates -> MuVERA MaxSim rerank -> Code-aware boost -
 **Decision:** Post-search heuristic boosts for code-specific ranking.
 
 **Implementation:**
+
 - CamelCase/snake_case splitting for term matching
 - Exact name match: 2.5x boost
 - Term overlap: +30% per matching term
@@ -77,12 +83,12 @@ Query -> BM25 (tantivy) candidates -> MuVERA MaxSim rerank -> Code-aware boost -
 
 **Context:** tantivy's default tokenizer treats `getUserProfile` as one token. A query for "get user profile" won't match. Two approaches:
 
-| Approach | Pros | Cons |
-|----------|------|------|
-| Custom tantivy tokenizer in omendb | Clean, proper | Requires omendb API changes |
-| Pre-split text before `index_text()` | Works now, no deps | Duplicates terms in index |
+| Approach                             | Pros               | Cons                        |
+| ------------------------------------ | ------------------ | --------------------------- |
+| Custom tantivy tokenizer in omendb   | Clean, proper      | Requires omendb API changes |
+| Pre-split text before `index_text()` | Works now, no deps | Duplicates terms in index   |
 
-**Choice:** Pre-split in hhg as immediate fix. Request custom tokenizer support in omendb for clean solution.
+**Choice:** Pre-split in omengrep as immediate fix. Request custom tokenizer support in omendb for clean solution.
 
 **Implementation:** Transform `getUserProfile` -> `getUserProfile get User Profile` before calling `index_text()`. Preserves original for exact match, adds split terms for partial match.
 
@@ -93,6 +99,7 @@ Query -> BM25 (tantivy) candidates -> MuVERA MaxSim rerank -> Code-aware boost -
 **Context:** SPLADE is SOTA for learned sparse retrieval (+10 nDCG over BM25). But: no code-specific models exist, BERT's WordPiece tokenizer mangles code identifiers, and NAVER's SPLADE models are non-commercial licensed.
 
 **Plan:**
+
 1. Near-term: improve BM25 tokenization (Decision #6) — zero inference cost
 2. When omendb ships sparse vectors: evaluate `ibm-granite/granite-embedding-30m-sparse` (30M, Apache 2.0, 50.8 nDCG)
 3. Long-term: fine-tune sparse model on code data
@@ -101,9 +108,24 @@ Query -> BM25 (tantivy) candidates -> MuVERA MaxSim rerank -> Code-aware boost -
 
 See `ai/tmp/splade-research.md` for full analysis.
 
-## 8. omendb Integration Points (2026-02-14)
+## 8. Naming: omengrep / og (2026-02-14)
+
+**Decision:** Package name `omengrep`, binary name `og`, index directory `.og/`.
+
+**Context:** Evaluating names for the crate and CLI binary after the Rust rewrite. Needed a name that works on crates.io, is memorable as a CLI command, and connects to the omendb ecosystem.
+
+**Choice:** `omengrep` (crate) + `og` (binary). Ties to the omendb brand while keeping the CLI invocation short. No namespace conflicts on crates.io. Environment variable prefix `OG_` (e.g., `OG_AUTO_BUILD`).
+
+**Alternatives rejected:**
+
+- `omgrep` / `omg` — too close to "oh my god", unprofessional
+- `hygrep` / `hhg` — original name, no brand connection to omendb
+- `omengrep` as binary — too long for frequent CLI use
+
+## 9. omendb Integration Points (2026-02-14)
 
 **Current API usage:**
+
 - `VectorStore::multi_vector(48)` — create store
 - `store.enable_text_search()` — enable BM25
 - `store.store(id, tokens, metadata)` — store multi-vector
@@ -115,6 +137,7 @@ See `ai/tmp/splade-research.md` for full analysis.
 - `store.flush()` — persist
 
 **Requested omendb changes:**
+
 1. `store_with_text()` for multi-vector — avoid separate `index_text()` call
 2. Custom tantivy tokenizer config in `TextSearchConfig` — code-aware BM25
 3. Native sparse vector support — for future SPLADE integration
