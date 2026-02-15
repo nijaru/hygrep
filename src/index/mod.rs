@@ -454,27 +454,29 @@ impl SemanticIndex {
             });
         }
 
-        let mut store = self.open_store()?;
-
-        let mut manifest = Manifest::load(&self.index_dir)?;
+        // Delete vectors for deleted files in a scoped block
+        // so the store lock is released before self.index() re-acquires it
         let mut deleted_count = 0;
+        {
+            let mut store = self.open_store()?;
+            let mut manifest = Manifest::load(&self.index_dir)?;
 
-        // Delete vectors for deleted files
-        for rel_path in &deleted {
-            if let Some(entry) = manifest.files.remove(rel_path) {
-                for block_id in &entry.blocks {
-                    let _ = store.delete(block_id);
+            for rel_path in &deleted {
+                if let Some(entry) = manifest.files.remove(rel_path) {
+                    for block_id in &entry.blocks {
+                        let _ = store.delete(block_id);
+                    }
+                    deleted_count += entry.blocks.len();
                 }
-                deleted_count += entry.blocks.len();
+            }
+
+            if deleted_count > 0 {
+                store.flush()?;
+                manifest.save(&self.index_dir)?;
             }
         }
 
-        if deleted_count > 0 {
-            store.flush()?;
-            manifest.save(&self.index_dir)?;
-        }
-
-        // Re-index changed files
+        // Re-index changed files (opens store internally)
         let changed_files: HashMap<PathBuf, String> = changed
             .into_iter()
             .filter_map(|p| files.get(&p).map(|c| (p, c.clone())))
