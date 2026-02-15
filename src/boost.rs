@@ -1,5 +1,6 @@
-use regex::Regex;
+use std::collections::HashSet;
 
+use crate::tokenize;
 use crate::types::SearchResult;
 
 /// Apply code-aware ranking boosts to search results.
@@ -16,52 +17,46 @@ pub fn boost_results(results: &mut [SearchResult], query: &str) {
         return;
     }
 
-    let query_lower = query.to_lowercase();
-
-    // Split camelCase and snake_case
-    let camel_re = Regex::new(r"([a-z])([A-Z])").unwrap();
-    let expanded = camel_re.replace_all(&query_lower, "$1 $2");
-    let split_re = Regex::new(r"[\s_\-./]+").unwrap();
-    let query_terms: std::collections::HashSet<&str> = split_re
-        .split(&expanded)
-        .filter(|t| !t.is_empty())
-        .filter(|t| t.len() >= 3 || SHORT_WHITELIST.contains(t))
+    let query_terms = tokenize::extract_terms(query);
+    let query_set: HashSet<&str> = query_terms
+        .iter()
+        .filter(|t| t.len() >= 3 || SHORT_WHITELIST.contains(&t.as_str()))
+        .map(|s| s.as_str())
         .collect();
 
-    let query_wants_class = query_terms
+    let query_wants_class = query_set
         .iter()
         .any(|t| matches!(*t, "class" | "struct" | "type"));
-    let query_wants_func = query_terms
+    let query_wants_func = query_set
         .iter()
         .any(|t| matches!(*t, "function" | "func" | "fn" | "method" | "def"));
 
     for r in results.iter_mut() {
         let mut boost: f64 = 1.0;
-        let name = r.name.to_lowercase();
+        let name_lower = r.name.to_lowercase();
         let block_type = r.block_type.to_lowercase();
         let file_path = r.file.to_lowercase();
 
-        // Expand name terms
-        let name_expanded = camel_re.replace_all(&name, "$1 $2");
-        let name_terms: std::collections::HashSet<&str> = split_re
-            .split(&name_expanded)
-            .filter(|t| !t.is_empty())
-            .collect();
+        // Extract terms from the block name (splits camelCase/snake_case)
+        let name_terms = tokenize::extract_terms(&r.name);
+        let name_set: HashSet<&str> = name_terms.iter().map(|s| s.as_str()).collect();
 
         // 1. Name matching
-        if !name.is_empty() && query_terms.contains(name.as_str()) {
+        if !name_lower.is_empty() && query_set.contains(name_lower.as_str()) {
             boost *= 2.5;
         } else {
-            let overlap = query_terms.intersection(&name_terms).count();
+            let overlap = query_set.intersection(&name_set).count();
             if overlap > 0 {
                 boost *= 1.0 + (0.3 * overlap as f64);
             }
         }
 
         // 2. Type boost
-        if query_wants_class && matches!(block_type.as_str(), "class" | "struct") {
-            boost *= 1.5;
-        } else if query_wants_func && matches!(block_type.as_str(), "function" | "method") {
+        let type_matches_query =
+            (query_wants_class && matches!(block_type.as_str(), "class" | "struct"))
+                || (query_wants_func && matches!(block_type.as_str(), "function" | "method"));
+
+        if type_matches_query {
             boost *= 1.5;
         } else if !query_wants_class && !query_wants_func {
             boost *= match block_type.as_str() {
@@ -73,7 +68,7 @@ pub fn boost_results(results: &mut [SearchResult], query: &str) {
         }
 
         // 3. File path relevance
-        if query_terms
+        if query_set
             .iter()
             .any(|t| t.len() >= 3 && file_path.contains(*t))
         {

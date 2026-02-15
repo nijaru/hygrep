@@ -9,6 +9,7 @@ use rayon::prelude::*;
 
 use crate::embedder::{self, Embedder, TOKEN_DIM};
 use crate::extractor::Extractor;
+use crate::tokenize::split_identifiers;
 use crate::types::{Block, IndexStats, SearchResult};
 
 use manifest::{FileEntry, Manifest};
@@ -178,9 +179,9 @@ impl SemanticIndex {
 
                 store.store(&block.id, tokens, metadata)?;
 
-                // Index text for BM25 hybrid search
-                let embedding_text = &prepared[start + idx].text;
-                store.index_text(&block.id, embedding_text)?;
+                // Index text for BM25 hybrid search (with split identifiers)
+                let bm25_text = split_identifiers(&prepared[start + idx].text);
+                store.index_text(&block.id, &bm25_text)?;
 
                 stats.blocks += 1;
             }
@@ -222,7 +223,9 @@ impl SemanticIndex {
 
         let search_k = k * 3; // Over-fetch for scope filtering
 
-        let results = store.search_multi_with_text(query, &token_refs, search_k, None)?;
+        // Split identifiers in query for BM25 matching
+        let bm25_query = split_identifiers(query);
+        let results = store.search_multi_with_text(&bm25_query, &token_refs, search_k, None)?;
 
         let mut output = Vec::new();
         for r in results {
@@ -616,10 +619,10 @@ pub fn find_subdir_indexes(path: &Path, include_root: bool) -> Vec<PathBuf> {
         let Ok(entry) = entry else { continue };
         if entry.file_name() == INDEX_DIR && entry.file_type().is_dir() {
             let idx_path = entry.path().to_path_buf();
-            if idx_path.join("manifest.json").exists() {
-                if include_root || idx_path.parent() != Some(&path) {
-                    indexes.push(idx_path);
-                }
+            if idx_path.join("manifest.json").exists()
+                && (include_root || idx_path.parent() != Some(&path))
+            {
+                indexes.push(idx_path);
             }
         }
     }

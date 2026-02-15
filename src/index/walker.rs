@@ -91,7 +91,7 @@ pub fn scan(root: &Path) -> Result<HashMap<PathBuf, String>> {
         };
 
         // Skip directories
-        if entry.file_type().map_or(true, |ft| !ft.is_file()) {
+        if entry.file_type().is_none_or(|ft| !ft.is_file()) {
             continue;
         }
 

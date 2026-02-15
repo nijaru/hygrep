@@ -22,6 +22,12 @@ pub struct FileEntry {
     pub blocks: Vec<String>,
 }
 
+impl Default for Manifest {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Manifest {
     pub fn new() -> Self {
         Self {
@@ -51,7 +57,7 @@ impl Manifest {
         if version < MANIFEST_VERSION {
             let has_files = data
                 .get("files")
-                .map(|f| f.as_object().map_or(false, |o| !o.is_empty()))
+                .map(|f| f.as_object().is_some_and(|o| !o.is_empty()))
                 .unwrap_or(false);
             if has_files {
                 bail!("Index was created by an older version. Run 'hhg build --force' to rebuild.");
@@ -63,7 +69,7 @@ impl Manifest {
         if !stored_model.is_empty() && stored_model != MODEL_VERSION {
             let has_files = data
                 .get("files")
-                .map(|f| f.as_object().map_or(false, |o| !o.is_empty()))
+                .map(|f| f.as_object().is_some_and(|o| !o.is_empty()))
                 .unwrap_or(false);
             if has_files {
                 bail!(

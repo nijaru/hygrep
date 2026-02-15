@@ -19,6 +19,12 @@ pub struct Extractor {
     parsers: std::collections::HashMap<String, (Parser, Language, Option<Query>)>,
 }
 
+impl Default for Extractor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Extractor {
     pub fn new() -> Self {
         Self {
@@ -83,19 +89,7 @@ impl Extractor {
                 let node_text = String::from_utf8_lossy(node_content).into_owned();
 
                 let capture_name = query.capture_names()[capture.index as usize];
-                let block_type = match capture_name {
-                    "function" => "function",
-                    "class" => "class",
-                    "method" => "method",
-                    "item" => "item",
-                    "rule" => "rule",
-                    "block" => "block",
-                    "element" => "element",
-                    "script" => "script",
-                    "style" => "style",
-                    "statement" => "statement",
-                    other => other,
-                };
+                let block_type = capture_name;
 
                 let start_line = node.start_position().row;
                 let end_line = node.end_position().row;

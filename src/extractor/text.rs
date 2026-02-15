@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 use regex::Regex;
 
 use crate::types::Block;
@@ -9,6 +11,10 @@ pub const TEXT_EXTENSIONS: &[&str] = &[".md", ".mdx", ".markdown", ".txt", ".rst
 const CHUNK_SIZE: usize = 400; // ~400 tokens target
 const CHUNK_OVERLAP: usize = 50; // ~50 tokens overlap
 const MIN_CHUNK_SIZE: usize = 30; // minimum tokens for a chunk
+
+/// Sentence boundary: split after `.` `!` `?` followed by whitespace.
+static SENTENCE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"[.!?]\s+").unwrap());
 
 /// Extract blocks from a text/documentation file.
 pub fn extract_text_blocks(file_path: &str, content: &str) -> Vec<Block> {
@@ -50,9 +56,11 @@ fn split_with_separators(
     for (i, sep) in separators.iter().enumerate() {
         let (parts, joiner) = match sep {
             None => {
-                // Sentence splitting
-                let re = Regex::new(r#"(?<=[.!?])\s+(?=[A-Z"'])|(?<=[.!?])$"#).unwrap();
-                let parts: Vec<&str> = re.split(text).filter(|s| !s.is_empty()).collect();
+                // Sentence splitting: split after sentence-ending punctuation
+                let parts: Vec<&str> = SENTENCE_RE
+                    .split(text)
+                    .filter(|s| !s.trim().is_empty())
+                    .collect();
                 if parts.len() <= 1 {
                     continue;
                 }
