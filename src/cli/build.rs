@@ -3,8 +3,9 @@ use std::time::Instant;
 
 use anyhow::Result;
 
-use crate::embedder::BATCH_SIZE;
-use crate::index::{self, walker, SemanticIndex};
+use crate::embedder::{self, BATCH_SIZE};
+use crate::index::manifest::Manifest;
+use crate::index::{self, walker, SemanticIndex, INDEX_DIR};
 use crate::types::EXIT_ERROR;
 
 pub fn run(path: &Path, force: bool, quiet: bool) -> Result<()> {
@@ -48,7 +49,8 @@ pub fn run(path: &Path, force: bool, quiet: bool) -> Result<()> {
             eprintln!("\r                 \r");
         }
 
-        let index = SemanticIndex::new(&build_path, None)?;
+        let model = resolve_index_model(&build_path);
+        let index = SemanticIndex::new_with_model(&build_path, None, model)?;
         let stale_result = index.get_stale_files(&files);
 
         match stale_result {
@@ -81,8 +83,8 @@ pub fn run(path: &Path, force: bool, quiet: bool) -> Result<()> {
                     if !quiet {
                         eprintln!("Rebuilding (index format changed)...");
                     }
-                    let index = SemanticIndex::new(&build_path, None)?;
-                    index.clear()?;
+                    let idx = SemanticIndex::new(&build_path, None)?;
+                    idx.clear()?;
                     build_index(&build_path, quiet)?;
                 } else {
                     eprintln!("{e}");
@@ -119,6 +121,14 @@ pub fn run(path: &Path, force: bool, quiet: bool) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn resolve_index_model(index_root: &Path) -> &'static embedder::ModelConfig {
+    let index_dir = index_root.join(INDEX_DIR);
+    match Manifest::load(&index_dir) {
+        Ok(manifest) => embedder::resolve_model_by_version(&manifest.model),
+        Err(_) => embedder::EDGE_MODEL,
+    }
 }
 
 fn index_exists(path: &Path) -> bool {

@@ -5,26 +5,28 @@ use ndarray::Array2;
 use ort::value::TensorRef;
 
 use super::tokenizer::TokenizerWrapper;
-use super::{Embedder, TokenEmbeddings, BATCH_SIZE, MODEL_FILE, MODEL_REPO};
+use super::{Embedder, ModelConfig, TokenEmbeddings};
 
-/// ONNX-based embedder for LateOn-Code-edge.
+/// ONNX-based embedder for LateOn-Code models.
 pub struct OnnxEmbedder {
     session: Mutex<ort::session::Session>,
     tokenizer: TokenizerWrapper,
+    batch_size: usize,
 }
 
 impl OnnxEmbedder {
-    pub fn new() -> Result<Self> {
-        let model_path = download_model()?;
+    pub fn new_with_config(config: &'static ModelConfig) -> Result<Self> {
+        let model_path = download_model_file(config)?;
         let session = ort::session::Session::builder()?
             .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)?
             .with_intra_threads(num_cpus())?
             .commit_from_file(&model_path)
             .context("Failed to load ONNX model")?;
-        let tokenizer = TokenizerWrapper::new()?;
+        let tokenizer = TokenizerWrapper::new_with_config(config)?;
         Ok(Self {
             session: Mutex::new(session),
             tokenizer,
+            batch_size: config.batch_size,
         })
     }
 
@@ -98,7 +100,7 @@ impl Embedder for OnnxEmbedder {
     fn embed_documents(&self, texts: &[&str]) -> Result<TokenEmbeddings> {
         let mut all_embeddings = Vec::with_capacity(texts.len());
 
-        for chunk in texts.chunks(BATCH_SIZE) {
+        for chunk in texts.chunks(self.batch_size) {
             let batch_result = self.embed_batch(chunk)?;
             all_embeddings.extend(batch_result.embeddings);
         }
@@ -118,10 +120,12 @@ impl Embedder for OnnxEmbedder {
     }
 }
 
-fn download_model() -> Result<String> {
+fn download_model_file(config: &ModelConfig) -> Result<String> {
     let api = hf_hub::api::sync::Api::new().context("Failed to create HF Hub API")?;
-    let repo = api.model(MODEL_REPO.to_string());
-    let path = repo.get(MODEL_FILE).context("Failed to download model")?;
+    let repo = api.model(config.repo.to_string());
+    let path = repo
+        .get(config.model_file)
+        .context("Failed to download model")?;
     Ok(path.to_string_lossy().into_owned())
 }
 

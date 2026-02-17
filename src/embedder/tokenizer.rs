@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use tokenizers::Tokenizer;
 
-use super::{DOC_MAX_LENGTH, MODEL_REPO, QUERY_MAX_LENGTH, TOKENIZER_FILE};
+use super::ModelConfig;
 
 /// Wrapper around HuggingFace tokenizer.
 /// Pre-configured with truncation/padding to avoid cloning per batch.
@@ -11,14 +11,14 @@ pub struct TokenizerWrapper {
 }
 
 impl TokenizerWrapper {
-    pub fn new() -> Result<Self> {
-        let tokenizer_path = download_tokenizer()?;
+    pub fn new_with_config(config: &ModelConfig) -> Result<Self> {
+        let tokenizer_path = download_tokenizer_file(config)?;
         let base = Tokenizer::from_file(&tokenizer_path).map_err(|e| anyhow::anyhow!("{e}"))?;
 
         let mut doc_tokenizer = base.clone();
         doc_tokenizer
             .with_truncation(Some(tokenizers::TruncationParams {
-                max_length: DOC_MAX_LENGTH,
+                max_length: config.doc_max_length,
                 ..Default::default()
             }))
             .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -27,7 +27,7 @@ impl TokenizerWrapper {
         let mut query_tokenizer = base;
         query_tokenizer
             .with_truncation(Some(tokenizers::TruncationParams {
-                max_length: QUERY_MAX_LENGTH,
+                max_length: config.query_max_length,
                 ..Default::default()
             }))
             .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -58,11 +58,11 @@ impl TokenizerWrapper {
     }
 }
 
-fn download_tokenizer() -> Result<String> {
+fn download_tokenizer_file(config: &ModelConfig) -> Result<String> {
     let api = hf_hub::api::sync::Api::new().context("Failed to create HF Hub API")?;
-    let repo = api.model(MODEL_REPO.to_string());
+    let repo = api.model(config.repo.to_string());
     let path = repo
-        .get(TOKENIZER_FILE)
+        .get(config.tokenizer_file)
         .context("Failed to download tokenizer")?;
     Ok(path.to_string_lossy().into_owned())
 }

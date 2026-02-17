@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 use rayon::prelude::*;
 
-use crate::embedder::{self, Embedder, TOKEN_DIM};
+use crate::embedder::{self, Embedder, ModelConfig};
 use crate::extractor::Extractor;
 use crate::tokenize::split_identifiers;
 use crate::types::{Block, IndexStats, SearchResult};
@@ -29,15 +29,24 @@ pub struct SemanticIndex {
     vectors_path: String,
     search_scope: Option<String>,
     embedder: Box<dyn Embedder>,
+    token_dim: usize,
 }
 
 impl SemanticIndex {
     pub fn new(root: &Path, search_scope: Option<&Path>) -> Result<Self> {
+        Self::new_with_model(root, search_scope, embedder::EDGE_MODEL)
+    }
+
+    pub fn new_with_model(
+        root: &Path,
+        search_scope: Option<&Path>,
+        model: &'static ModelConfig,
+    ) -> Result<Self> {
         let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
         let index_dir = root.join(INDEX_DIR);
         let vectors_path = index_dir.join(VECTORS_DIR).to_string_lossy().into_owned();
         let scope = Self::compute_scope(&root, search_scope);
-        let embedder = embedder::create_embedder()?;
+        let embedder = embedder::create_embedder_with_model(model)?;
 
         Ok(Self {
             root,
@@ -45,6 +54,7 @@ impl SemanticIndex {
             vectors_path,
             search_scope: scope,
             embedder,
+            token_dim: model.token_dim,
         })
     }
 
@@ -591,9 +601,12 @@ impl SemanticIndex {
         if vectors_path.exists() || Path::new(&omen_path).exists() {
             omendb::VectorStore::open(&self.vectors_path).context("Failed to open vector store")
         } else {
-            omendb::VectorStore::multi_vector_with(TOKEN_DIM, omendb::MultiVectorConfig::compact())
-                .persist(&self.vectors_path)
-                .context("Failed to create vector store")
+            omendb::VectorStore::multi_vector_with(
+                self.token_dim,
+                omendb::MultiVectorConfig::compact(),
+            )
+            .persist(&self.vectors_path)
+            .context("Failed to create vector store")
         }
     }
 }
