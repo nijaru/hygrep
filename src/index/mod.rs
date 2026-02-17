@@ -11,6 +11,7 @@ use crate::embedder::{self, Embedder, TOKEN_DIM};
 use crate::extractor::Extractor;
 use crate::tokenize::split_identifiers;
 use crate::types::{Block, IndexStats, SearchResult};
+use omendb::SearchOptions;
 
 use manifest::{FileEntry, Manifest};
 
@@ -55,6 +56,20 @@ impl SemanticIndex {
             search_scope: scope,
             embedder,
         })
+    }
+
+    /// Set search scope after construction (for reusing a single instance).
+    pub fn set_search_scope(&mut self, search_scope: Option<&Path>) {
+        self.search_scope = search_scope.and_then(|s| {
+            let s = s.canonicalize().unwrap_or_else(|_| s.to_path_buf());
+            if s != self.root {
+                s.strip_prefix(&self.root)
+                    .ok()
+                    .map(|p| p.to_string_lossy().into_owned())
+            } else {
+                None
+            }
+        });
     }
 
     /// Build index from scanned files.
@@ -207,7 +222,7 @@ impl SemanticIndex {
         Ok(stats)
     }
 
-    /// Hybrid search: semantic + BM25.
+    /// Hybrid search: semantic + BM25 with merged candidates.
     pub fn search(&self, query: &str, k: usize) -> Result<Vec<SearchResult>> {
         let store = self.open_store()?;
 
@@ -217,14 +232,42 @@ impl SemanticIndex {
             .collect();
         let token_refs: Vec<&[f32]> = tokens.iter().map(|v| v.as_slice()).collect();
 
-        let search_k = k * 3; // Over-fetch for scope filtering
+        // Over-fetch more when scope filtering will discard results
+        let overfetch = if self.search_scope.is_some() { 5 } else { 1 };
+        let search_k = k * overfetch;
 
-        // Split identifiers in query for BM25 matching
+        // Run both BM25+MaxSim and pure semantic search, merge by ID
         let bm25_query = split_identifiers(query);
-        let results = store.search_multi_with_text(&bm25_query, &token_refs, search_k, None)?;
+        let bm25_results =
+            store.search_multi_with_text(&bm25_query, &token_refs, search_k, None)?;
+        let semantic_results =
+            store.query_with_options(&token_refs, search_k, &SearchOptions::default())?;
+
+        // Merge: keep higher score per ID
+        let mut best: HashMap<String, omendb::SearchResult> =
+            HashMap::with_capacity(bm25_results.len() + semantic_results.len());
+
+        for r in bm25_results {
+            best.entry(r.id.clone())
+                .and_modify(|existing| {
+                    if r.distance > existing.distance {
+                        *existing = r.clone();
+                    }
+                })
+                .or_insert(r);
+        }
+        for r in semantic_results {
+            best.entry(r.id.clone())
+                .and_modify(|existing| {
+                    if r.distance > existing.distance {
+                        *existing = r.clone();
+                    }
+                })
+                .or_insert(r);
+        }
 
         let mut output = Vec::new();
-        for r in results {
+        for r in best.into_values() {
             let file = r
                 .metadata
                 .get("file")
@@ -312,12 +355,14 @@ impl SemanticIndex {
             entry.blocks[0].clone()
         };
 
-        // Get the block's FDE vector and search for similar
-        let (query_vec, _meta) = store
-            .get(&block_id)
-            .with_context(|| "Could not retrieve block embedding")?;
+        // Get the block's token embeddings and search with MaxSim reranking
+        let (query_tokens, _meta) = store
+            .get_tokens(&block_id)
+            .with_context(|| "Could not retrieve block token embeddings")?;
 
-        let results = store.search(&query_vec, k * 3 + entry.blocks.len(), None)?;
+        let token_refs: Vec<&[f32]> = query_tokens.iter().map(|v| v.as_slice()).collect();
+        let search_k = k * 3 + entry.blocks.len();
+        let results = store.query_with_options(&token_refs, search_k, &SearchOptions::default())?;
 
         let block_set: std::collections::HashSet<&str> =
             entry.blocks.iter().map(|s| s.as_str()).collect();
@@ -350,8 +395,6 @@ impl SemanticIndex {
                 }
             }
 
-            let score = (2.0 - r.distance) / 2.0;
-
             output.push(SearchResult {
                 file: self.to_absolute(file),
                 block_type: block_type.to_string(),
@@ -376,7 +419,7 @@ impl SemanticIndex {
                     .get("content")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string()),
-                score,
+                score: r.distance,
             });
 
             if output.len() >= k {

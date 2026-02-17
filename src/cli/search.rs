@@ -67,6 +67,8 @@ pub fn run(
         path.clone()
     };
 
+    let mut index = SemanticIndex::new(&index_root, None)?;
+
     if !no_index {
         // Auto-update stale files
         if !quiet && index_root != search_path {
@@ -74,7 +76,6 @@ pub fn run(
         }
 
         let files = walker::scan(&index_root)?;
-        let index = SemanticIndex::new(&index_root, None)?;
         let stale_count = index.needs_update(&files)?;
 
         if stale_count > 0 {
@@ -95,7 +96,7 @@ pub fn run(
         eprint!("Searching...");
     }
     let t0 = Instant::now();
-    let index = SemanticIndex::new(&index_root, Some(&search_path))?;
+    index.set_search_scope(Some(&search_path));
     let mut results = index.search(query, num_results)?;
     let search_time = t0.elapsed();
     if !quiet {

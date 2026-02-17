@@ -72,13 +72,25 @@ fn search_authentication() {
 }
 
 #[test]
-fn search_no_match_exits_1() {
+fn search_gibberish_succeeds() {
     let tmp = build_fixture_index();
 
-    og().args(["zzzznonexistentqueryzzzz", tmp.path().to_str().unwrap()])
+    // Semantic search (MaxSim) always returns candidates, even for gibberish.
+    // Just verify the search completes and returns valid JSON.
+    let output = og()
+        .args([
+            "--json",
+            "zzzznonexistentqueryzzzz",
+            tmp.path().to_str().unwrap(),
+            "-n",
+            "1",
+        ])
         .assert()
-        .code(1)
-        .stderr(predicate::str::contains("No results"));
+        .success();
+
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert!(parsed.is_array());
 }
 
 #[test]

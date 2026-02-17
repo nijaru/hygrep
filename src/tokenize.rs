@@ -7,12 +7,10 @@ static IDENT_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"[a-zA-Z][a-zA-Z0-9_]*[a-zA-Z0-9]").unwrap());
 
 /// Regex matching camelCase boundaries (e.g., getUserProfile -> get|User|Profile).
-static CAMEL_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"([a-z0-9])([A-Z])").unwrap());
+static CAMEL_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"([a-z0-9])([A-Z])").unwrap());
 
 /// Regex matching ALLCAPS -> lowercase transitions (e.g., HTTPSClient -> HTTPS|Client).
-static UPPER_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"([A-Z]+)([A-Z][a-z])").unwrap());
+static UPPER_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"([A-Z]+)([A-Z][a-z])").unwrap());
 
 /// Split a single identifier into its component parts, lowercased.
 ///
@@ -38,7 +36,11 @@ fn split_word(word: &str) -> Vec<String> {
         .map(|s| s.to_lowercase())
         .collect();
 
-    if parts.len() > 1 { parts } else { Vec::new() }
+    if parts.len() > 1 {
+        parts
+    } else {
+        Vec::new()
+    }
 }
 
 /// Split code identifiers for BM25 text search.
@@ -62,9 +64,6 @@ pub fn split_identifiers(text: &str) -> String {
     if extra.is_empty() {
         return text.to_string();
     }
-
-    extra.sort_unstable();
-    extra.dedup();
 
     format!("{text} {}", extra.join(" "))
 }
@@ -156,12 +155,13 @@ mod tests {
     }
 
     #[test]
-    fn deduplicates() {
+    fn preserves_term_frequency() {
         let result = split_identifiers("getUserProfile setUserProfile");
         let extra = result.split("setUserProfile ").nth(1).unwrap_or("");
         let terms: Vec<&str> = extra.split_whitespace().collect();
-        let unique: std::collections::HashSet<&&str> = terms.iter().collect();
-        assert_eq!(terms.len(), unique.len());
+        // "user" and "profile" appear in both identifiers, so they should be repeated
+        assert_eq!(terms.iter().filter(|&&t| t == "user").count(), 2);
+        assert_eq!(terms.iter().filter(|&&t| t == "profile").count(), 2);
     }
 
     #[test]
