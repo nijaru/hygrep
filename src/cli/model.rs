@@ -1,31 +1,38 @@
 use anyhow::Result;
 use hf_hub::api::sync::Api;
 
-use crate::embedder::{MODEL_FILE, MODEL_REPO, TOKENIZER_FILE};
+use crate::embedder::{self, ModelConfig, MODELS};
 
 pub fn status() -> Result<()> {
     let api = Api::new()?;
-    let repo = api.model(MODEL_REPO.to_string());
 
-    let model_cached = repo.get(MODEL_FILE).is_ok();
-    let tokenizer_cached = repo.get(TOKENIZER_FILE).is_ok();
-
-    if model_cached && tokenizer_cached {
-        println!("{MODEL_REPO} (installed)");
-    } else {
-        eprintln!("Model not installed -- run 'og model install'");
+    for (name, config) in MODELS {
+        let repo = api.model(config.repo.to_string());
+        let installed =
+            repo.get(config.model_file).is_ok() && repo.get(config.tokenizer_file).is_ok();
+        let marker = if installed {
+            "installed"
+        } else {
+            "not installed"
+        };
+        println!("  {name:<8} {:<36} ({marker})", config.repo);
     }
 
     Ok(())
 }
 
-pub fn install() -> Result<()> {
+pub fn install(model_name: Option<&str>) -> Result<()> {
+    let config = embedder::resolve_model(model_name);
+    install_model(config)
+}
+
+fn install_model(config: &ModelConfig) -> Result<()> {
     let api = Api::new()?;
-    let repo = api.model(MODEL_REPO.to_string());
+    let repo = api.model(config.repo.to_string());
 
-    println!("Downloading {MODEL_REPO}...");
+    println!("Downloading {}...", config.repo);
 
-    for filename in [MODEL_FILE, TOKENIZER_FILE] {
+    for filename in [config.model_file, config.tokenizer_file] {
         match repo.get(filename) {
             Ok(path) => {
                 println!("  {filename} -> {}", path.display());
@@ -38,6 +45,6 @@ pub fn install() -> Result<()> {
         }
     }
 
-    println!("Model installed: {MODEL_REPO}");
+    println!("Model installed: {}", config.repo);
     Ok(())
 }

@@ -85,7 +85,7 @@ pub fn run(
             if !quiet {
                 eprint!("Updating {stale_count} changed files...");
             }
-            let stats = index.update(&files, crate::embedder::BATCH_SIZE)?;
+            let stats = index.update(&files, model.batch_size)?;
             if !quiet && stats.blocks > 0 {
                 eprintln!(" updated {} blocks", stats.blocks);
             } else if !quiet {
@@ -278,7 +278,7 @@ fn build_index(path: &Path, quiet: bool) -> Result<()> {
 
     let stats = index.index(
         &files,
-        crate::embedder::BATCH_SIZE,
+        model.batch_size,
         progress_fn
             .as_ref()
             .map(|f| f as &dyn Fn(usize, usize, &str)),

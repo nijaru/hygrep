@@ -30,6 +30,7 @@ pub struct SemanticIndex {
     search_scope: Option<String>,
     embedder: Box<dyn Embedder>,
     token_dim: usize,
+    model_version: &'static str,
 }
 
 impl SemanticIndex {
@@ -55,6 +56,7 @@ impl SemanticIndex {
             search_scope: scope,
             embedder,
             token_dim: model.token_dim,
+            model_version: model.version,
         })
     }
 
@@ -85,6 +87,7 @@ impl SemanticIndex {
     ) -> Result<IndexStats> {
         std::fs::create_dir_all(&self.index_dir)?;
         let mut manifest = Manifest::load(&self.index_dir)?;
+        manifest.model = self.model_version.to_string();
         let mut stats = IndexStats::default();
 
         // Open omendb multi-vector store

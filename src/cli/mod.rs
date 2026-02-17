@@ -78,6 +78,9 @@ enum Command {
         /// Suppress progress.
         #[arg(short = 'q', long = "quiet")]
         quiet: bool,
+        /// Embedding model (edge, full).
+        #[arg(short = 'm', long = "model")]
+        model: Option<String>,
     },
     /// Show index status.
     Status {
@@ -110,7 +113,10 @@ enum Command {
 #[derive(Subcommand)]
 enum ModelAction {
     /// Download embedding model.
-    Install,
+    Install {
+        /// Model name (edge, full). Defaults to edge.
+        name: Option<String>,
+    },
 }
 
 /// Main CLI entry point.
@@ -118,12 +124,17 @@ pub fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Command::Build { path, force, quiet }) => build::run(&path, force, quiet),
+        Some(Command::Build {
+            path,
+            force,
+            quiet,
+            model,
+        }) => build::run(&path, force, quiet, model.as_deref()),
         Some(Command::Status { path }) => status::run(&path),
         Some(Command::Clean { path, recursive }) => clean::run(&path, recursive),
         Some(Command::List { path }) => list::run(&path),
         Some(Command::Model { action }) => match action {
-            Some(ModelAction::Install) => model::install(),
+            Some(ModelAction::Install { name }) => model::install(name.as_deref()),
             None => model::status(),
         },
         None => search::run(

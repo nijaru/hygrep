@@ -4,7 +4,7 @@ use std::path::Path;
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::embedder::MODEL_VERSION;
+use crate::embedder;
 
 pub const MANIFEST_VERSION: u32 = 9;
 const MANIFEST_FILE: &str = "manifest.json";
@@ -24,15 +24,15 @@ pub struct FileEntry {
 
 impl Default for Manifest {
     fn default() -> Self {
-        Self::new()
+        Self::new(embedder::MODEL_VERSION)
     }
 }
 
 impl Manifest {
-    pub fn new() -> Self {
+    pub fn new(model_version: &str) -> Self {
         Self {
             version: MANIFEST_VERSION,
-            model: MODEL_VERSION.to_string(),
+            model: model_version.to_string(),
             files: HashMap::new(),
         }
     }
@@ -41,12 +41,12 @@ impl Manifest {
         let manifest_path = index_dir.join(MANIFEST_FILE);
 
         if !manifest_path.exists() {
-            return Ok(Self::new());
+            return Ok(Self::default());
         }
 
         let content = std::fs::read_to_string(&manifest_path)?;
         if content.trim().is_empty() {
-            return Ok(Self::new());
+            return Ok(Self::default());
         }
 
         let data: serde_json::Value = serde_json::from_str(&content)?;
@@ -68,20 +68,6 @@ impl Manifest {
                 .unwrap_or(false);
             if has_files {
                 bail!("Index was created by an older version. Run 'og build --force' to rebuild.");
-            }
-        }
-
-        // Validate model version
-        let stored_model = data.get("model").and_then(|v| v.as_str()).unwrap_or("");
-        if !stored_model.is_empty() && stored_model != MODEL_VERSION {
-            let has_files = data
-                .get("files")
-                .map(|f| f.as_object().is_some_and(|o| !o.is_empty()))
-                .unwrap_or(false);
-            if has_files {
-                bail!(
-                    "Index was created with a different model. Run 'og build --force' to rebuild."
-                );
             }
         }
 
