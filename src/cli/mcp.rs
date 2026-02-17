@@ -321,3 +321,49 @@ fn resolve_index_model(index_root: &Path) -> &'static embedder::ModelConfig {
         Err(_) => embedder::EDGE_MODEL,
     }
 }
+
+/// Install og as an MCP server in Claude Code settings.
+pub fn install_claude_code() -> Result<()> {
+    let og_path = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.canonicalize().ok())
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "og".to_string());
+
+    let home =
+        std::env::var("HOME").map_err(|_| anyhow::anyhow!("Could not determine home directory"))?;
+    let config_path = Path::new(&home).join(".claude.json");
+
+    let mut config: Value = if config_path.exists() {
+        let content = std::fs::read_to_string(&config_path)?;
+        serde_json::from_str(&content)?
+    } else {
+        json!({})
+    };
+
+    let servers = config
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("Invalid claude.json format"))?
+        .entry("mcpServers")
+        .or_insert_with(|| json!({}));
+
+    servers
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("Invalid mcpServers format"))?
+        .insert(
+            "og".to_string(),
+            json!({
+                "type": "stdio",
+                "command": og_path,
+                "args": ["mcp"],
+            }),
+        );
+
+    let content = serde_json::to_string_pretty(&config)?;
+    std::fs::write(&config_path, content)?;
+
+    println!("Installed og MCP server in {}", config_path.display());
+    println!("Restart Claude Code to activate.");
+
+    Ok(())
+}

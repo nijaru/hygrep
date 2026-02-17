@@ -111,6 +111,8 @@ enum Command {
     },
     /// Start MCP server (JSON-RPC over stdio).
     Mcp,
+    /// Install og as MCP server in Claude Code.
+    InstallClaudeCode,
 }
 
 #[derive(Subcommand)]
@@ -141,6 +143,7 @@ pub fn run() -> anyhow::Result<()> {
             None => model::status(),
         },
         Some(Command::Mcp) => mcp::run(),
+        Some(Command::InstallClaudeCode) => mcp::install_claude_code(),
         None => search::run(
             cli.query.as_deref(),
             &cli.path,
