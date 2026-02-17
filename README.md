@@ -75,9 +75,9 @@ Set `OG_AUTO_BUILD=1` to build the index automatically on first search.
 omengrep uses tree-sitter to parse source files into AST blocks (functions, classes, methods), then builds two indexes per block:
 
 1. **Embedding index** — per-token embeddings from a ColBERT-style model ([LateOn-Code-edge](https://huggingface.co/answerdotai/LateOn-Code-edge), 17M params, INT8 ONNX). Stored as [MuVERA](https://arxiv.org/abs/2405.19504) compressed multi-vectors, searched with MaxSim reranking.
-2. **BM25 index** — keyword search with camelCase/snake_case splitting, so `getUserProfile` matches queries for "get user profile".
+2. **BM25 index** — keyword search with identifier-aware tokenization.
 
-At search time, both indexes run in parallel and results merge by ID, keeping the higher score. A post-search pass boosts results where identifier names overlap with the query.
+At search time, both indexes run in parallel and results merge by ID, keeping the higher score.
 
 Runs locally on CPU. No GPU, no API keys, no network. Search latency is 270-440ms.
 
