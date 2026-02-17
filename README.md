@@ -1,6 +1,6 @@
 # omengrep (og)
 
-Semantic code search. Matches by meaning, not just text.
+Local code search using embeddings and BM25.
 
 ```bash
 cargo install --path .
@@ -10,7 +10,7 @@ og "authentication flow" ./src
 
 ## What it does
 
-og indexes code into functions, classes, and methods using tree-sitter, then searches using both embeddings (for meaning) and BM25 (for keywords). Searching "error handling" finds `errorHandler()` and `AppError`, not just comments containing those words.
+omengrep parses source files into functions, classes, and methods using tree-sitter, then indexes each block with both embeddings and BM25 keywords. Queries match against both indexes, so searching "error handling" finds `errorHandler()` and `AppError` — not just comments containing those words.
 
 ```bash
 $ og build ./src
@@ -34,7 +34,7 @@ src/types.rs:15 enum SearchError
 | "authentication" | Strings containing "auth" | `login()`, `verify_token()`   |
 | "database"       | Config files, comments    | `Connection`, `query()`, `Db` |
 
-Use grep/ripgrep for exact strings. Use og when you want implementations, not mentions.
+Use grep/ripgrep for exact strings. Use omengrep when you want implementations, not mentions.
 
 ## Install
 
@@ -68,18 +68,18 @@ og --exclude "tests/*" "fn" .  # Exclude patterns
 og --code-only "handler" .     # Skip docs (md, txt, rst)
 ```
 
-Set `OG_AUTO_BUILD=1` to automatically build the index on first search.
+Set `OG_AUTO_BUILD=1` to build the index automatically on first search.
 
 ## How it works
 
-og parses source files into AST blocks (functions, classes, methods) using tree-sitter, then builds two indexes per block:
+omengrep uses tree-sitter to parse source files into AST blocks (functions, classes, methods), then builds two indexes per block:
 
-1. **Embedding index** — per-token embeddings from a ColBERT-style model ([LateOn-Code-edge](https://huggingface.co/answerdotai/LateOn-Code-edge), 17M params, INT8 ONNX). Stored and searched using [MuVERA](https://arxiv.org/abs/2405.19504) compressed multi-vectors with MaxSim reranking.
+1. **Embedding index** — per-token embeddings from a ColBERT-style model ([LateOn-Code-edge](https://huggingface.co/answerdotai/LateOn-Code-edge), 17M params, INT8 ONNX). Stored as [MuVERA](https://arxiv.org/abs/2405.19504) compressed multi-vectors, searched with MaxSim reranking.
 2. **BM25 index** — keyword search with camelCase/snake_case splitting, so `getUserProfile` matches queries for "get user profile".
 
-At search time, both indexes are queried in parallel and results are merged by ID, keeping the higher score. A code-aware boost pass then adjusts ranking based on identifier name overlap, block type, and file path relevance.
+At search time, both indexes run in parallel and results merge by ID, keeping the higher score. A post-search pass boosts results where identifier names overlap with the query.
 
-Search latency is 270-440ms. Everything runs locally on CPU — no GPU, no API keys, no network.
+Runs locally on CPU. No GPU, no API keys, no network. Search latency is 270-440ms.
 
 Built on [omendb](https://github.com/nijaru/omendb).
 
