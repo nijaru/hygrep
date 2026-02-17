@@ -75,7 +75,7 @@ pub fn run(path: &Path, force: bool, quiet: bool) -> Result<()> {
             }
             Err(e) => {
                 let msg = e.to_string();
-                if msg.contains("older version") || msg.contains("different model") {
+                if msg.contains("older version") {
                     // Model or format changed - force rebuild
                     if !quiet {
                         eprintln!("Rebuilding (index format changed)...");
