@@ -90,29 +90,15 @@ pub fn run(path: &Path, force: bool, quiet: bool) -> Result<()> {
             }
         }
     } else {
-        // No index exists - merge subdir indexes, then build
-        if !subdir_indexes.is_empty() {
-            // TODO: implement merge_from_subdir for VectorStore
-            // For now, just build fresh and clean up subdirs after
-        }
-
         build_index(&build_path, quiet)?;
-
-        // Clean up subdir indexes (now superseded by parent)
-        for idx in &subdir_indexes {
-            let _ = std::fs::remove_dir_all(idx);
-        }
-        if !subdir_indexes.is_empty() && !quiet {
-            eprintln!("Cleaned up {} subdir indexes", subdir_indexes.len());
-        }
     }
 
-    // Clean up subdir indexes for non-fresh builds
-    if index_exists(&build_path) {
+    // Clean up subdir indexes now superseded by parent
+    if !subdir_indexes.is_empty() && index_exists(&build_path) {
         for idx in &subdir_indexes {
             let _ = std::fs::remove_dir_all(idx);
         }
-        if !subdir_indexes.is_empty() && !quiet {
+        if !quiet {
             eprintln!("Cleaned up {} subdir indexes", subdir_indexes.len());
         }
     }
@@ -126,7 +112,7 @@ fn index_exists(path: &Path) -> bool {
         .exists()
 }
 
-fn build_index(path: &Path, quiet: bool) -> Result<()> {
+pub fn build_index(path: &Path, quiet: bool) -> Result<()> {
     if !quiet {
         eprint!("Scanning files...");
     }

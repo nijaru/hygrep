@@ -75,6 +75,20 @@ pub enum OutputFormat {
     FilesOnly,
 }
 
+impl OutputFormat {
+    pub fn from_flags(json: bool, files_only: bool, compact: bool) -> Self {
+        if files_only {
+            Self::FilesOnly
+        } else if json {
+            Self::Json
+        } else if compact {
+            Self::Compact
+        } else {
+            Self::Default
+        }
+    }
+}
+
 /// Stats returned from indexing operations.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct IndexStats {

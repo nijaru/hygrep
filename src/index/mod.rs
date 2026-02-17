@@ -268,51 +268,18 @@ impl SemanticIndex {
 
         let mut output = Vec::new();
         for r in best.into_values() {
-            let file = r
-                .metadata
-                .get("file")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-
             if let Some(scope) = &self.search_scope {
+                let file = r
+                    .metadata
+                    .get("file")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 if !file.starts_with(scope.as_str()) {
                     continue;
                 }
             }
 
-            let abs_file = self.to_absolute(file);
-
-            output.push(SearchResult {
-                file: abs_file,
-                block_type: r
-                    .metadata
-                    .get("type")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                name: r
-                    .metadata
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                line: r
-                    .metadata
-                    .get("start_line")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as usize,
-                end_line: r
-                    .metadata
-                    .get("end_line")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as usize,
-                content: r
-                    .metadata
-                    .get("content")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string()),
-                score: r.distance,
-            });
+            output.push(self.result_from_omendb(&r));
         }
 
         output.sort_by(|a, b| {
@@ -383,44 +350,18 @@ impl SemanticIndex {
                 continue;
             }
 
-            let file = r
-                .metadata
-                .get("file")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-
             if let Some(scope) = &self.search_scope {
+                let file = r
+                    .metadata
+                    .get("file")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 if !file.starts_with(scope.as_str()) {
                     continue;
                 }
             }
 
-            output.push(SearchResult {
-                file: self.to_absolute(file),
-                block_type: block_type.to_string(),
-                name: r
-                    .metadata
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                line: r
-                    .metadata
-                    .get("start_line")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as usize,
-                end_line: r
-                    .metadata
-                    .get("end_line")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as usize,
-                content: r
-                    .metadata
-                    .get("content")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string()),
-                score: r.distance,
-            });
+            output.push(self.result_from_omendb(&r));
 
             if output.len() >= k {
                 break;
@@ -563,6 +504,45 @@ impl SemanticIndex {
         manifest.save(&self.index_dir)?;
 
         Ok(stats)
+    }
+
+    fn result_from_omendb(&self, r: &omendb::SearchResult) -> SearchResult {
+        let file = r
+            .metadata
+            .get("file")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        SearchResult {
+            file: self.to_absolute(file),
+            block_type: r
+                .metadata
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            name: r
+                .metadata
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            line: r
+                .metadata
+                .get("start_line")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize,
+            end_line: r
+                .metadata
+                .get("end_line")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize,
+            content: r
+                .metadata
+                .get("content")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
+            score: r.distance,
+        }
     }
 
     fn to_relative(&self, path: &Path) -> String {

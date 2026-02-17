@@ -6,6 +6,7 @@ use ort::value::TensorRef;
 
 use super::tokenizer::TokenizerWrapper;
 use super::{Embedder, ModelConfig, TokenEmbeddings};
+use tokenizers::Encoding;
 
 /// ONNX-based embedder for LateOn-Code models.
 pub struct OnnxEmbedder {
@@ -29,9 +30,7 @@ impl OnnxEmbedder {
         })
     }
 
-    fn embed_batch(&self, texts: &[&str]) -> Result<TokenEmbeddings> {
-        let encodings = self.tokenizer.encode_documents(texts)?;
-
+    fn embed_batch(&self, encodings: Vec<Encoding>) -> Result<TokenEmbeddings> {
         let batch_size = encodings.len();
         let seq_len = encodings
             .iter()
@@ -71,12 +70,8 @@ impl OnnxEmbedder {
 
         // Extract per-document token embeddings, filtering by attention mask
         let mut result = Vec::with_capacity(batch_size);
-        for i in 0..batch_size {
-            let num_tokens = encodings[i]
-                .get_attention_mask()
-                .iter()
-                .filter(|&&m| m == 1)
-                .count();
+        for (i, enc) in encodings.iter().enumerate() {
+            let num_tokens = enc.get_attention_mask().iter().filter(|&&m| m == 1).count();
 
             // Slice the output view directly — avoids element-by-element copy
             let mut tokens = view.slice(ndarray::s![i, 0..num_tokens, ..]).to_owned();
@@ -100,7 +95,8 @@ impl Embedder for OnnxEmbedder {
         let mut all_embeddings = Vec::with_capacity(texts.len());
 
         for chunk in texts.chunks(self.batch_size) {
-            let batch_result = self.embed_batch(chunk)?;
+            let encodings = self.tokenizer.encode_documents(chunk)?;
+            let batch_result = self.embed_batch(encodings)?;
             all_embeddings.extend(batch_result.embeddings);
         }
 
@@ -110,7 +106,8 @@ impl Embedder for OnnxEmbedder {
     }
 
     fn embed_query(&self, text: &str) -> Result<Array2<f32>> {
-        let result = self.embed_batch(&[text])?;
+        let encoding = self.tokenizer.encode_query(text)?;
+        let result = self.embed_batch(vec![encoding])?;
         result
             .embeddings
             .into_iter()

@@ -8,21 +8,21 @@ use crate::cli::output::print_results;
 use crate::index::{self, walker, SemanticIndex};
 use crate::types::{FileRef, OutputFormat, EXIT_ERROR, EXIT_MATCH, EXIT_NO_MATCH};
 
-pub fn run(
-    query: Option<&str>,
-    path: &Path,
-    num_results: usize,
-    threshold: f32,
-    json: bool,
-    files_only: bool,
-    compact: bool,
-    quiet: bool,
-    file_types: Option<&str>,
-    exclude: &[String],
-    code_only: bool,
-    no_index: bool,
-) -> Result<()> {
-    let query = match query {
+pub struct SearchParams<'a> {
+    pub query: Option<&'a str>,
+    pub path: &'a Path,
+    pub num_results: usize,
+    pub threshold: f32,
+    pub format: OutputFormat,
+    pub quiet: bool,
+    pub file_types: Option<&'a str>,
+    pub exclude: &'a [String],
+    pub code_only: bool,
+    pub no_index: bool,
+}
+
+pub fn run(params: &SearchParams) -> Result<()> {
+    let query = match params.query {
         Some(q) => q,
         None => {
             bail!("No query provided. Run 'og --help' for usage.");
@@ -31,10 +31,13 @@ pub fn run(
 
     // Check if query is a file reference
     if let Some(file_ref) = parse_file_reference(query) {
-        return run_similar_search(file_ref, num_results, json, files_only, compact, quiet);
+        return run_similar_search(file_ref, params.num_results, params.format, params.quiet);
     }
 
-    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let path = params
+        .path
+        .canonicalize()
+        .unwrap_or_else(|_| params.path.to_path_buf());
     if !path.exists() {
         eprintln!("Path does not exist: {}", path.display());
         std::process::exit(EXIT_ERROR);
@@ -50,10 +53,10 @@ pub fn run(
             .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes"))
             .unwrap_or(false)
         {
-            if !quiet {
+            if !params.quiet {
                 eprintln!("Building index (OG_AUTO_BUILD=1)...");
             }
-            build_index(&path, quiet)?;
+            super::build::build_index(&path, params.quiet)?;
         } else {
             eprintln!("No index found. Run 'og build' first.");
             eprintln!("Tip: Set OG_AUTO_BUILD=1 for auto-indexing");
@@ -69,9 +72,9 @@ pub fn run(
 
     let mut index = SemanticIndex::new(&index_root, None)?;
 
-    if !no_index {
+    if !params.no_index {
         // Auto-update stale files
-        if !quiet && index_root != search_path {
+        if !params.quiet && index_root != search_path {
             eprintln!("Using index at {}", index_root.display());
         }
 
@@ -79,59 +82,49 @@ pub fn run(
         let stale_count = index.needs_update(&files)?;
 
         if stale_count > 0 {
-            if !quiet {
+            if !params.quiet {
                 eprint!("Updating {stale_count} changed files...");
             }
             let stats = index.update(&files)?;
-            if !quiet && stats.blocks > 0 {
+            if !params.quiet && stats.blocks > 0 {
                 eprintln!(" updated {} blocks", stats.blocks);
-            } else if !quiet {
+            } else if !params.quiet {
                 eprintln!(" done");
             }
         }
     }
 
     // Run search
-    if !quiet {
+    if !params.quiet {
         eprint!("Searching...");
     }
     let t0 = Instant::now();
     index.set_search_scope(Some(&search_path));
-    let mut results = index.search(query, num_results)?;
+    let mut results = index.search(query, params.num_results)?;
     let search_time = t0.elapsed();
-    if !quiet {
+    if !params.quiet {
         eprintln!("\r              \r");
     }
 
     if results.is_empty() {
-        if !json {
+        if !matches!(params.format, OutputFormat::Json) {
             eprintln!("No results found");
         }
         std::process::exit(EXIT_NO_MATCH);
     }
 
     // Filter results
-    results = filter_results(results, file_types, exclude, code_only);
+    results = filter_results(results, params.file_types, params.exclude, params.code_only);
     boost_results(&mut results, query);
 
-    let format = if files_only {
-        OutputFormat::FilesOnly
-    } else if json {
-        OutputFormat::Json
-    } else if compact {
-        OutputFormat::Compact
-    } else {
-        OutputFormat::Default
-    };
-
     // Filter by threshold
-    if threshold != 0.0 {
-        results.retain(|r| r.score >= threshold);
+    if params.threshold != 0.0 {
+        results.retain(|r| r.score >= params.threshold);
     }
 
-    print_results(&results, format, false, Some(&path));
+    print_results(&results, params.format, false, Some(&path));
 
-    if !quiet && !json && !files_only {
+    if !params.quiet && !matches!(params.format, OutputFormat::Json | OutputFormat::FilesOnly) {
         let result_word = if results.len() == 1 {
             "result"
         } else {
@@ -155,9 +148,7 @@ pub fn run(
 fn run_similar_search(
     file_ref: FileRef,
     num_results: usize,
-    json: bool,
-    files_only: bool,
-    compact: bool,
+    format: OutputFormat,
     quiet: bool,
 ) -> Result<()> {
     let (file_path, line, name) = match &file_ref {
@@ -218,74 +209,21 @@ fn run_similar_search(
     }
 
     if results.is_empty() {
-        if !json {
+        if !matches!(format, OutputFormat::Json) {
             eprintln!("No similar code found");
         }
         std::process::exit(EXIT_NO_MATCH);
     }
 
-    let format = if files_only {
-        OutputFormat::FilesOnly
-    } else if json {
-        OutputFormat::Json
-    } else if compact {
-        OutputFormat::Compact
-    } else {
-        OutputFormat::Default
-    };
-
     print_results(&results, format, true, Some(&index_root));
 
-    if !quiet && !json {
+    if !quiet && !matches!(format, OutputFormat::Json) {
         let result_word = if results.len() == 1 {
             "result"
         } else {
             "results"
         };
         eprintln!("{} similar {}", results.len(), result_word);
-    }
-
-    Ok(())
-}
-
-/// Build index for a path.
-fn build_index(path: &Path, quiet: bool) -> Result<()> {
-    let files = walker::scan(path)?;
-    if files.is_empty() {
-        if !quiet {
-            eprintln!("No files found to index");
-        }
-        return Ok(());
-    }
-
-    let index = SemanticIndex::new(path, None)?;
-    let t0 = Instant::now();
-
-    let progress_fn = if quiet {
-        None
-    } else {
-        Some(
-            (|current: usize, total: usize, _msg: &str| {
-                eprint!("\rIndexing {current}/{total}...");
-            }) as fn(usize, usize, &str),
-        )
-    };
-
-    let stats = index.index(
-        &files,
-        progress_fn
-            .as_ref()
-            .map(|f| f as &dyn Fn(usize, usize, &str)),
-    )?;
-    let elapsed = t0.elapsed();
-
-    if !quiet {
-        eprintln!(
-            "\rIndexed {} blocks from {} files ({:.1}s)",
-            stats.blocks,
-            stats.files,
-            elapsed.as_secs_f64()
-        );
     }
 
     Ok(())
