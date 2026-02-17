@@ -62,6 +62,7 @@ og file.rs:42                  # Find code similar to a specific line
 og status [path]               # Show index info
 og list [path]                 # List all indexes under path
 og clean [path]                # Delete index
+og mcp                         # Start MCP server (for AI agents)
 
 # Options
 og -n 5 "error handling" .     # Limit to 5 results
@@ -103,7 +104,7 @@ For those interested in the internals:
 
 ```
 Build:  Scan (gitignore-aware) -> Extract (tree-sitter AST) -> Embed (ONNX INT8, 48d/token) -> Store (omendb multi-vector + BM25)
-Search: Embed query -> BM25 candidates -> MuVERA MaxSim rerank -> Code-aware boost -> Results
+Search: Embed query -> BM25 candidates + semantic candidates -> Merge by ID -> Code-aware boost -> Results
 ```
 
 ## License

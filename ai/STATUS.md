@@ -36,11 +36,6 @@ Sprint 1-4 complete. Post-sprint review + refactor:
 - Homebrew formula ready: `nijaru/homebrew-tap/Formula/og.rb`
 - Tag `v0.1.0` when unblocked
 
-### Repo Rename
-
-- Rename GitHub repo: hygrep -> omengrep (`gh repo rename omengrep`)
-- Update git remote after rename
-
 ### Testing
 
 - Test MCP server with Claude Code (`og install-claude-code`)
