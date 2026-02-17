@@ -10,7 +10,7 @@ og "authentication flow" ./src
 
 ## What it does
 
-omengrep parses source files into functions, classes, and methods using tree-sitter, then indexes each block with both embeddings and BM25 keywords. Queries match against both indexes, so searching "error handling" finds `errorHandler()` and `AppError` — not just comments containing those words.
+omengrep extracts functions, classes, and methods from source files using tree-sitter, then indexes each block with both embeddings and BM25 keywords. Queries match against both indexes, so searching "error handling" finds `errorHandler()` and `AppError` — not just comments containing those words.
 
 ```bash
 $ og build ./src
@@ -28,7 +28,7 @@ src/types.rs:15 enum SearchError
 2 results (0.27s)
 ```
 
-| Query            | grep finds                | og finds                      |
+| Query            | grep finds                | omengrep finds                |
 | ---------------- | ------------------------- | ----------------------------- |
 | "error handling" | Comments mentioning it    | `errorHandler()`, `AppError`  |
 | "authentication" | Strings containing "auth" | `login()`, `verify_token()`   |
