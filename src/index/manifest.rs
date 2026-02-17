@@ -53,7 +53,14 @@ impl Manifest {
 
         let version = data.get("version").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
 
-        // Old manifests (v1-v7) are incompatible — different model, dims, metric
+        if version > MANIFEST_VERSION {
+            bail!(
+                "Index was created by a newer version of og. \
+                 Please upgrade og or run 'og build --force' to rebuild."
+            );
+        }
+
+        // Old manifests are incompatible — different model, dims, metric
         if version < MANIFEST_VERSION {
             let has_files = data
                 .get("files")

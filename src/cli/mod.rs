@@ -28,7 +28,7 @@ pub struct Cli {
     #[arg(short = 'n', default_value = "10")]
     num_results: usize,
 
-    /// Minimum score (0-1).
+    /// Minimum similarity score (0 = disabled).
     #[arg(long = "threshold", long = "min-score", default_value = "0.0")]
     threshold: f32,
 

@@ -1,6 +1,7 @@
 pub mod manifest;
 pub mod walker;
 
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -35,18 +36,7 @@ impl SemanticIndex {
         let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
         let index_dir = root.join(INDEX_DIR);
         let vectors_path = index_dir.join(VECTORS_DIR).to_string_lossy().into_owned();
-
-        let scope = search_scope.and_then(|s| {
-            let s = s.canonicalize().unwrap_or_else(|_| s.to_path_buf());
-            if s != root {
-                s.strip_prefix(&root)
-                    .ok()
-                    .map(|p| p.to_string_lossy().into_owned())
-            } else {
-                None
-            }
-        });
-
+        let scope = Self::compute_scope(&root, search_scope);
         let embedder = embedder::create_embedder()?;
 
         Ok(Self {
@@ -60,16 +50,20 @@ impl SemanticIndex {
 
     /// Set search scope after construction (for reusing a single instance).
     pub fn set_search_scope(&mut self, search_scope: Option<&Path>) {
-        self.search_scope = search_scope.and_then(|s| {
+        self.search_scope = Self::compute_scope(&self.root, search_scope);
+    }
+
+    fn compute_scope(root: &Path, search_scope: Option<&Path>) -> Option<String> {
+        search_scope.and_then(|s| {
             let s = s.canonicalize().unwrap_or_else(|_| s.to_path_buf());
-            if s != self.root {
-                s.strip_prefix(&self.root)
+            if s != *root {
+                s.strip_prefix(root)
                     .ok()
                     .map(|p| p.to_string_lossy().into_owned())
             } else {
                 None
             }
-        });
+        })
     }
 
     /// Build index from scanned files.
@@ -234,7 +228,7 @@ impl SemanticIndex {
 
         // Over-fetch more when scope filtering will discard results
         let overfetch = if self.search_scope.is_some() { 5 } else { 1 };
-        let search_k = k * overfetch;
+        let search_k = k.saturating_mul(overfetch);
 
         // Run both BM25+MaxSim and pure semantic search, merge by ID
         let bm25_query = split_identifiers(query);
@@ -247,24 +241,22 @@ impl SemanticIndex {
         let mut best: HashMap<String, omendb::SearchResult> =
             HashMap::with_capacity(bm25_results.len() + semantic_results.len());
 
-        for r in bm25_results {
-            best.entry(r.id.clone())
-                .and_modify(|existing| {
-                    if r.distance > existing.distance {
-                        *existing = r.clone();
+        let mut merge = |results: Vec<omendb::SearchResult>| {
+            for r in results {
+                match best.entry(r.id.clone()) {
+                    Entry::Occupied(mut e) => {
+                        if r.distance > e.get().distance {
+                            *e.get_mut() = r;
+                        }
                     }
-                })
-                .or_insert(r);
-        }
-        for r in semantic_results {
-            best.entry(r.id.clone())
-                .and_modify(|existing| {
-                    if r.distance > existing.distance {
-                        *existing = r.clone();
+                    Entry::Vacant(e) => {
+                        e.insert(r);
                     }
-                })
-                .or_insert(r);
-        }
+                }
+            }
+        };
+        merge(bm25_results);
+        merge(semantic_results);
 
         let mut output = Vec::new();
         for r in best.into_values() {
@@ -361,7 +353,7 @@ impl SemanticIndex {
             .with_context(|| "Could not retrieve block token embeddings")?;
 
         let token_refs: Vec<&[f32]> = query_tokens.iter().map(|v| v.as_slice()).collect();
-        let search_k = k * 3 + entry.blocks.len();
+        let search_k = k.saturating_mul(3).saturating_add(entry.blocks.len());
         let results = store.query_with_options(&token_refs, search_k, &SearchOptions::default())?;
 
         let block_set: std::collections::HashSet<&str> =
