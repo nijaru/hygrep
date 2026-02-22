@@ -18,19 +18,18 @@ MCP:    og mcp (JSON-RPC/stdio) -> og_search, og_similar, og_status tools
 
 ## Active Work
 
-### Quality Benchmark (tk-pbf0)
+### Quality Benchmark (tk-pbf0) — DONE
 
-Script: `bench/quality.py` (to be created)
+Script: `bench/quality.py` (complete)
 
-- Corpus: CodeSearchNet Python test split (~14k functions)
-- Queries: docstrings as NL queries, 500 sampled
-- Metrics: MRR@10, Recall@1/5/10
-- Match: gold by file basename `corpus/{idx:06d}.py`
-- **Blocker**: HF `code_search_net` dataset broken (loading scripts deprecated)
-  - Researcher agent running to find working mirror
-  - Try: CoIR-Retrieval org, direct jsonl download from S3/GH
-- og JSON output fields: `file`, `name`, `type`, `line`, `score`, `content`
-- See `ai/research/benchmark-methodology.md` for full design
+**First run results** (2000 corpus, 100 queries, seed=42):
+
+- MRR@10: 0.0082 | Recall@1: 0.00 | Recall@5: 0.00 | Recall@10: 0.08
+- 16× over random (random baseline = 0.5% Recall@10)
+
+**Root cause of low numbers**: Corpus is dominated by similar Azure SDK boilerplate functions (method wrappers with identical structure). The 17M-param model can't discriminate — scores cluster around -12 to -13 with no spread. BM25 selects candidates correctly but MaxSim re-ranking is near-random for homogeneous corpora.
+
+**Next for this benchmark**: Run with first-line-only docstring queries (not full docstrings), use `--corpus-size 22091` for full diversity. Compare with BM25-only baseline.
 
 ### Publish to crates.io (tk-4f2n)
 
