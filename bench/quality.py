@@ -8,19 +8,23 @@
 # ///
 """CodeSearchNet quality benchmark for omengrep.
 
-Corpus:  Nan-Do/code-search-net-python test partition (~22k functions)
-Queries: docstrings as NL queries, 500 sampled (seed=42)
+Corpus:  Nan-Do/code-search-net-python test partition, subsampled
+Queries: docstrings as NL queries, sampled from corpus (seed=42)
 Metrics: MRR@10, Recall@1/5/10
+
+Default: 2000 corpus functions, 100 queries (~5 min).
+Full run: --corpus-size 22091 --queries 500 (~100 min, subprocess overhead).
 
 Usage:
     uv run bench/quality.py [options]
 
-    --corpus-dir DIR   Where to write corpus files (default: bench/corpus)
-    --og-bin PATH      Path to og binary (default: og)
-    --queries N        Number of queries to sample (default: 500)
-    --k N              Recall cutoff, also MRR@k (default: 10)
-    --skip-corpus      Skip writing corpus files (already written)
-    --skip-build       Skip og build (index already built)
+    --corpus-dir DIR    Where to write corpus files (default: bench/corpus)
+    --og-bin PATH       Path to og binary (default: og)
+    --corpus-size N     Functions to index (default: 2000; 22091 = full)
+    --queries N         Queries to sample from corpus (default: 100)
+    --k N               Recall cutoff, also MRR@k (default: 10)
+    --skip-corpus       Skip writing corpus files (already written)
+    --skip-build        Skip og build (index already built)
 
 Run from the omengrep repo root.
 """
@@ -103,7 +107,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--corpus-dir", default="bench/corpus")
     parser.add_argument("--og-bin", default="og")
-    parser.add_argument("--queries", type=int, default=500)
+    parser.add_argument("--corpus-size", type=int, default=2000)
+    parser.add_argument("--queries", type=int, default=100)
     parser.add_argument("--k", type=int, default=10)
     parser.add_argument("--skip-corpus", action="store_true")
     parser.add_argument("--skip-build", action="store_true")
@@ -116,18 +121,25 @@ def main() -> None:
     print("Loading Nan-Do/code-search-net-python ...")
     ds = load_dataset("Nan-Do/code-search-net-python", split="train")
     test_ds = ds.filter(lambda x: x["partition"] == "test", desc="Filtering test")
-    examples = list(test_ds)
-    print(f"Test split: {len(examples)} functions")
+    all_examples = list(test_ds)
+    print(f"Test split: {len(all_examples)} functions total")
 
-    valid = [
+    # Subsample corpus (deterministic, seed=42)
+    rng = random.Random(42)
+    corpus_pool = [
         (i, ex)
-        for i, ex in enumerate(examples)
+        for i, ex in enumerate(all_examples)
         if ex.get("docstring", "").strip() and ex.get("code", "").strip()
     ]
-    print(f"Valid (non-empty docstring + code): {len(valid)}")
+    corpus_sample = rng.sample(corpus_pool, min(args.corpus_size, len(corpus_pool)))
+    # Re-index 0..N so filenames are dense (gold matching stays consistent)
+    examples = [(new_i, orig_i, ex) for new_i, (orig_i, ex) in enumerate(corpus_sample)]
+    print(f"Corpus size: {len(examples)} functions (seed=42)")
 
     if not args.skip_corpus:
-        write_corpus(examples, corpus_dir)
+        corpus_dir.mkdir(parents=True, exist_ok=True)
+        for new_i, _orig_i, ex in tqdm(examples, desc="Writing corpus"):
+            (corpus_dir / f"{new_i:06d}.py").write_text(ex["code"], encoding="utf-8")
     else:
         print(f"Using existing corpus at {corpus_dir}")
 
@@ -136,20 +148,22 @@ def main() -> None:
     else:
         print("Skipping index build")
 
+    # Sample queries from corpus (gold is always present in the index)
     queries = [
-        (i, ex["docstring"].strip())
-        for i, ex in random.Random(42).sample(valid, min(args.queries, len(valid)))
+        (new_i, ex["docstring"].strip())
+        for new_i, _orig_i, ex in rng.sample(examples, min(args.queries, len(examples)))
     ]
     print(f"Sampled {len(queries)} queries (seed=42)")
 
     metrics = evaluate(og, queries, corpus_dir, k)
+    metrics["corpus_size"] = len(examples)
 
     print()
     print("=" * 44)
     print("  omengrep Quality Benchmark")
     print("=" * 44)
     print("  Dataset : Nan-Do/code-search-net-python")
-    print(f"  Corpus  : {len(examples)} functions (test partition)")
+    print(f"  Corpus  : {len(examples)} functions (test partition, seed=42)")
     print(f"  Queries : {metrics['n_queries']} (seed=42)")
     print()
     print(f"  MRR@{k:<6}: {metrics['mrr']:.4f}")
