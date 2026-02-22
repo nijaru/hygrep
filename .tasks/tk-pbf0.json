@@ -1,0 +1,19 @@
+{
+  "project": "tk",
+  "ref": "pbf0",
+  "title": "Implement quality benchmark (CodeSearchNet + MRR)",
+  "description": "Quality eval script in bench/quality.py. Corpus: CodeSearchNet Python test split (~14k functions). Queries: docstrings as NL queries (500 sampled). Metrics: MRR@10, Recall@1/5/10. HF dataset source broken (loading scripts deprecated) - researcher agent launched to find working mirror (a5f878a78fe5ab15d). Check CoIR-Retrieval, Nan-Do, direct jsonl download. og JSON output fields: file, name, type, line, score, content. Match gold by basename of file path (corpus/{idx:06d}.py). Also implement CoSQA if available.",
+  "status": "open",
+  "priority": 2,
+  "labels": [],
+  "assignees": [],
+  "parent": null,
+  "blocked_by": [],
+  "estimate": null,
+  "due_date": null,
+  "logs": [],
+  "created_at": "2026-02-22T09:42:32.549Z",
+  "updated_at": "2026-02-22T09:42:32.549Z",
+  "completed_at": null,
+  "external": {}
+}

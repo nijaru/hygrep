@@ -20,10 +20,18 @@
     {
       "ts": "2026-02-17T06:54:58.211Z",
       "msg": "Review+refactor session: fixed query tokenizer bug (embed_query was using doc tokenizer 512 instead of query tokenizer 256), extracted SearchParams struct, deduplicated build_index/result_from_omendb/OutputFormat selection, fixed double subdir cleanup. Simplified to single model (edge only). All 26 tests pass, clippy clean."
+    },
+    {
+      "ts": "2026-02-19T22:36:46.529Z",
+      "msg": "Waiting on omendb crates.io publish. Next steps when unblocked: update Cargo.toml dep, cargo publish, tag v0.1.0."
+    },
+    {
+      "ts": "2026-02-22T09:42:37.656Z",
+      "msg": "omendb now on crates.io at 0.0.29 (user is maintainer). Bumped dep, fixed multi_vector_with() Result API change (added ? at src/index/mod.rs:581). All 14 tests pass. Waiting on omendb publish to unblock omengrep publish."
     }
   ],
   "created_at": "2026-02-14T21:13:55.005Z",
-  "updated_at": "2026-02-17T06:54:58.211Z",
+  "updated_at": "2026-02-22T09:42:37.656Z",
   "completed_at": null,
   "external": {}
 }
