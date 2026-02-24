@@ -2,7 +2,7 @@
 
 | Metric    | Value                          | Updated    |
 | --------- | ------------------------------ | ---------- |
-| Package   | omengrep 0.0.1 (binary: og)    | 2026-02-16 |
+| Package   | omengrep 0.1.0 (binary: og)    | 2026-02-24 |
 | Models    | LateOn-Code-edge (48d, single) | 2026-02-16 |
 | omendb    | 0.0.30 (multi-vector+compact)  | 2026-02-23 |
 | Manifest  | v10 (mtime field)              | 2026-02-23 |
@@ -36,18 +36,18 @@ MCP:    og mcp (JSON-RPC/stdio) -> og_search, og_similar, og_status tools
 
 Performance bench: `benches/omendb.rs` (divan)
 
-| Benchmark       | 0.0.28 median | 0.0.30 median | delta   |
-| --------------- | ------------- | ------------- | ------- |
-| search_hybrid   | 395.8 us      | 392.3 us      | -1%     |
-| search_semantic | 454.8 us      | 422.0 us      | **-7%** |
-| store_write     | 5.49 ms       | 5.25 ms       | -4%     |
+| Benchmark       | Baseline (0.0.30) | Current       | delta   |
+| --------------- | ----------------- | ------------- | ------- |
+| search_hybrid   | 392.3 us          | 404.5 us      | +3%     |
+| search_semantic | 422.0 us          | 539.4 us      | +28%    |
+| store_write     | 5.25 ms           | 6.169 ms      | +18%    |
 
 Quality bench: `bench/quality.py` (CodeSearchNet)
 
-| Metric    | Before (2026-02-22) | After (TBD) |
-| --------- | ------------------- | ----------- |
-| MRR@10    | 0.0082              | —           |
-| Recall@10 | 0.08                | —           |
+| Metric    | Before (2026-02-22) | After (2026-02-24) |
+| --------- | ------------------- | ------------------ |
+| MRR@10    | 0.0082              | 0.0062             |
+| Recall@10 | 0.08                | 0.06               |
 
 ## Competitive Context
 
