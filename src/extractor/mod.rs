@@ -118,15 +118,29 @@ impl Extractor {
     }
 }
 
-/// Remove blocks that are fully contained within other blocks.
-/// When a parent block (e.g., class) contains children (e.g., methods),
-/// drop the parent to avoid duplicate content in the index.
+/// Container block types that should be removed when they have children.
+/// Functions/methods are NOT containers — a decorated_definition wrapping
+/// a function_definition should keep the outer (decorated) block.
+const CONTAINER_TYPES: &[&str] = &[
+    "class",
+    "struct",
+    "module",
+    "impl",
+    "trait",
+    "enum",
+    "interface",
+    "block",
+];
+
+/// Remove container blocks whose content is fully covered by children.
+/// Only drops class/struct/module/impl parents, not function wrappers
+/// like decorated_definition.
 fn remove_nested_blocks(mut blocks: Vec<Block>) -> Vec<Block> {
     if blocks.len() <= 1 {
         return blocks;
     }
 
-    // Sort by start byte (start_line as proxy), then by size descending
+    // Sort by start line, then by size descending (larger blocks first)
     blocks.sort_by(|a, b| {
         a.start_line
             .cmp(&b.start_line)
@@ -139,9 +153,14 @@ fn remove_nested_blocks(mut blocks: Vec<Block>) -> Vec<Block> {
         if !keep[i] {
             continue;
         }
-        // Check if block i fully contains any later blocks
-        let mut has_children = false;
+        // Only container types get dropped when they have children
+        if !CONTAINER_TYPES.contains(&blocks[i].block_type.as_str()) {
+            continue;
+        }
         for j in (i + 1)..blocks.len() {
+            if blocks[j].start_line > blocks[i].end_line {
+                break; // sorted — no more children possible
+            }
             if !keep[j] {
                 continue;
             }
@@ -150,11 +169,9 @@ fn remove_nested_blocks(mut blocks: Vec<Block>) -> Vec<Block> {
                 && (blocks[j].start_line != blocks[i].start_line
                     || blocks[j].end_line != blocks[i].end_line)
             {
-                has_children = true;
+                keep[i] = false;
+                break;
             }
-        }
-        if has_children {
-            keep[i] = false;
         }
     }
 

@@ -423,15 +423,13 @@ impl SemanticIndex {
         (changed, deleted)
     }
 
-    /// Fast staleness check using mtime only (no content reads).
-    /// Returns paths that may have changed (mtime differs or missing from manifest)
-    /// and deleted paths (in manifest but not on disk).
-    pub fn get_stale_files_fast(
+    /// Compare file metadata against manifest mtimes.
+    /// Returns (maybe_changed paths, deleted rel_paths).
+    fn mtime_diff(
         &self,
         metadata: &HashMap<PathBuf, walker::FileMetadata>,
-    ) -> Result<(Vec<PathBuf>, Vec<String>)> {
-        let manifest = Manifest::load(&self.index_dir)?;
-
+        manifest: &Manifest,
+    ) -> (Vec<PathBuf>, Vec<String>) {
         let mut maybe_changed = Vec::new();
         let mut current_rel_files = std::collections::HashSet::new();
 
@@ -452,7 +450,16 @@ impl SemanticIndex {
             .cloned()
             .collect();
 
-        Ok((maybe_changed, deleted))
+        (maybe_changed, deleted)
+    }
+
+    /// Fast staleness check using mtime only (no content reads).
+    pub fn get_stale_files_fast(
+        &self,
+        metadata: &HashMap<PathBuf, walker::FileMetadata>,
+    ) -> Result<(Vec<PathBuf>, Vec<String>)> {
+        let manifest = Manifest::load(&self.index_dir)?;
+        Ok(self.mtime_diff(metadata, &manifest))
     }
 
     /// Check for stale files and update if needed. Single manifest load.
@@ -461,28 +468,8 @@ impl SemanticIndex {
         &self,
         metadata: &HashMap<PathBuf, walker::FileMetadata>,
     ) -> Result<(usize, Option<IndexStats>)> {
-        let manifest = Manifest::load(&self.index_dir)?;
-
-        // Fast mtime pre-check
-        let mut maybe_changed = Vec::new();
-        let mut current_rel_files = std::collections::HashSet::new();
-
-        for (path, &(_size, mtime)) in metadata {
-            let rel_path = self.to_relative(path);
-            current_rel_files.insert(rel_path.clone());
-
-            match manifest.files.get(&rel_path) {
-                Some(entry) if entry.mtime == mtime && mtime > 0 => {}
-                _ => maybe_changed.push(path.clone()),
-            }
-        }
-
-        let deleted: Vec<String> = manifest
-            .files
-            .keys()
-            .filter(|k| !current_rel_files.contains(*k))
-            .cloned()
-            .collect();
+        let mut manifest = Manifest::load(&self.index_dir)?;
+        let (maybe_changed, deleted) = self.mtime_diff(metadata, &manifest);
 
         let stale_count = maybe_changed.len() + deleted.len();
         if stale_count == 0 {
@@ -520,11 +507,10 @@ impl SemanticIndex {
 
         let actual_stale = changed_files.len() + deleted.len();
 
-        // Delete vectors for deleted files
+        // Delete vectors for deleted files (reuse already-loaded manifest)
         let mut deleted_count = 0;
         {
             let mut store = self.open_store()?;
-            let mut manifest = Manifest::load(&self.index_dir)?;
 
             for rel_path in &deleted {
                 if let Some(entry) = manifest.files.remove(rel_path) {
