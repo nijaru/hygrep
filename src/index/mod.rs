@@ -69,10 +69,11 @@ impl SemanticIndex {
         })
     }
 
-    /// Build index from scanned files.
+    /// Build index from scanned files. Each entry is (content, mtime) where
+    /// mtime was captured before reading content to avoid race conditions.
     pub fn index(
         &self,
-        files: &HashMap<PathBuf, String>,
+        files: &HashMap<PathBuf, (String, u64)>,
         on_progress: Option<&dyn Fn(usize, usize, &str)>,
     ) -> Result<IndexStats> {
         std::fs::create_dir_all(&self.index_dir)?;
@@ -85,8 +86,8 @@ impl SemanticIndex {
         store.enable_text_search()?;
 
         // Identify files needing processing (borrow content, don't clone)
-        let mut to_process: Vec<(&Path, &str, String, String)> = Vec::new();
-        for (path, content) in files {
+        let mut to_process: Vec<(&Path, &str, String, String, u64)> = Vec::new();
+        for (path, (content, mtime)) in files {
             let rel_path = self.to_relative(path);
             let file_hash = hash_content(content);
 
@@ -102,7 +103,13 @@ impl SemanticIndex {
                 stats.deleted += entry.blocks.len();
             }
 
-            to_process.push((path.as_path(), content.as_str(), rel_path, file_hash));
+            to_process.push((
+                path.as_path(),
+                content.as_str(),
+                rel_path,
+                file_hash,
+                *mtime,
+            ));
         }
 
         if to_process.is_empty() {
@@ -115,13 +122,13 @@ impl SemanticIndex {
         store.flush()?;
 
         // Extract blocks in parallel, reusing Extractor per thread
-        let all_blocks: Vec<(Vec<Block>, String, String)> = to_process
+        let all_blocks: Vec<(Vec<Block>, String, String, u64)> = to_process
             .par_iter()
             .map_init(
                 Extractor::new,
-                |extractor, (_path, content, rel_path, file_hash)| {
+                |extractor, (_path, content, rel_path, file_hash, mtime)| {
                     let blocks = extractor.extract(rel_path, content).unwrap_or_default();
-                    (blocks, rel_path.clone(), file_hash.clone())
+                    (blocks, rel_path.clone(), file_hash.clone(), *mtime)
                 },
             )
             .collect();
@@ -135,7 +142,7 @@ impl SemanticIndex {
         }
 
         let mut prepared: Vec<PreparedBlock> = Vec::new();
-        for (file_idx, (blocks, _rel_path, _file_hash)) in all_blocks.iter().enumerate() {
+        for (file_idx, (blocks, _rel_path, _file_hash, _mtime)) in all_blocks.iter().enumerate() {
             if blocks.is_empty() {
                 stats.errors += 1;
             } else {
@@ -204,19 +211,15 @@ impl SemanticIndex {
 
         store.flush()?;
 
-        // Update manifest
-        for (i, (blocks, rel_path, file_hash)) in all_blocks.iter().enumerate() {
+        // Update manifest (mtime was captured before content read)
+        for (blocks, rel_path, file_hash, mtime) in &all_blocks {
             if !blocks.is_empty() {
-                let mtime = to_process
-                    .get(i)
-                    .map(|(path, _, _, _)| walker::file_mtime(path))
-                    .unwrap_or(0);
                 manifest.files.insert(
                     rel_path.clone(),
                     FileEntry {
                         hash: file_hash.clone(),
                         blocks: blocks.iter().map(|b| b.id.clone()).collect(),
-                        mtime,
+                        mtime: *mtime,
                     },
                 );
             }
@@ -396,13 +399,13 @@ impl SemanticIndex {
     /// Get stale files by comparing content hashes against manifest.
     fn get_stale_files_with_manifest(
         &self,
-        files: &HashMap<PathBuf, String>,
+        files: &HashMap<PathBuf, (String, u64)>,
         manifest: &Manifest,
     ) -> (Vec<PathBuf>, Vec<String>) {
         let mut changed = Vec::new();
         let mut current_rel_files = std::collections::HashSet::new();
 
-        for (path, content) in files {
+        for (path, (content, _mtime)) in files {
             let rel_path = self.to_relative(path);
             current_rel_files.insert(rel_path.clone());
             let file_hash = hash_content(content);
@@ -476,9 +479,11 @@ impl SemanticIndex {
             return Ok((0, None));
         }
 
-        // Read content only for potentially changed files, then hash-check
-        let mut changed_files: HashMap<PathBuf, String> = HashMap::new();
+        // Read content only for potentially changed files, then hash-check.
+        // Stat before read so mtime is never newer than the content we index.
+        let mut changed_files: HashMap<PathBuf, (String, u64)> = HashMap::new();
         for path in &maybe_changed {
+            let mtime = walker::file_mtime(path);
             let raw = match std::fs::read(path) {
                 Ok(data) => data,
                 Err(_) => continue,
@@ -496,7 +501,7 @@ impl SemanticIndex {
             match manifest.files.get(&rel_path) {
                 Some(entry) if entry.hash == file_hash => {}
                 _ => {
-                    changed_files.insert(path.clone(), content);
+                    changed_files.insert(path.clone(), (content, mtime));
                 }
             }
         }
@@ -535,21 +540,21 @@ impl SemanticIndex {
     /// Get stale files (changed + deleted). Loads manifest internally.
     pub fn get_stale_files(
         &self,
-        files: &HashMap<PathBuf, String>,
+        files: &HashMap<PathBuf, (String, u64)>,
     ) -> Result<(Vec<PathBuf>, Vec<String>)> {
         let manifest = Manifest::load(&self.index_dir)?;
         Ok(self.get_stale_files_with_manifest(files, &manifest))
     }
 
     /// Quick check: how many files need updating?
-    pub fn needs_update(&self, files: &HashMap<PathBuf, String>) -> Result<usize> {
+    pub fn needs_update(&self, files: &HashMap<PathBuf, (String, u64)>) -> Result<usize> {
         let manifest = Manifest::load(&self.index_dir)?;
         let (changed, deleted) = self.get_stale_files_with_manifest(files, &manifest);
         Ok(changed.len() + deleted.len())
     }
 
     /// Incremental update.
-    pub fn update(&self, files: &HashMap<PathBuf, String>) -> Result<IndexStats> {
+    pub fn update(&self, files: &HashMap<PathBuf, (String, u64)>) -> Result<IndexStats> {
         let manifest = Manifest::load(&self.index_dir)?;
         let (changed, deleted) = self.get_stale_files_with_manifest(files, &manifest);
 
@@ -583,7 +588,7 @@ impl SemanticIndex {
         }
 
         // Re-index changed files (opens store internally)
-        let changed_files: HashMap<PathBuf, String> = changed
+        let changed_files: HashMap<PathBuf, (String, u64)> = changed
             .into_iter()
             .filter_map(|p| files.get(&p).map(|c| (p, c.clone())))
             .collect();

@@ -145,8 +145,9 @@ pub fn file_mtime(path: &Path) -> u64 {
         .unwrap_or(0)
 }
 
-/// Scan directory tree for text files, returning path -> content map.
-pub fn scan(root: &Path) -> Result<HashMap<PathBuf, String>> {
+/// Scan directory tree for text files, returning path -> (content, mtime).
+/// mtime is captured before reading content so it's never newer than what was read.
+pub fn scan(root: &Path) -> Result<HashMap<PathBuf, (String, u64)>> {
     let mut results = HashMap::new();
 
     let walker = WalkBuilder::new(root)
@@ -193,6 +194,9 @@ pub fn scan(root: &Path) -> Result<HashMap<PathBuf, String>> {
             }
         }
 
+        // Stat before read so mtime is never newer than the content we index
+        let mtime = file_mtime(path);
+
         // Read and check for binary content
         let raw = match std::fs::read(path) {
             Ok(data) => data,
@@ -211,7 +215,7 @@ pub fn scan(root: &Path) -> Result<HashMap<PathBuf, String>> {
             Err(_) => continue,
         };
 
-        results.insert(path.to_path_buf(), content);
+        results.insert(path.to_path_buf(), (content, mtime));
     }
 
     Ok(results)
