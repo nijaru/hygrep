@@ -10,5 +10,8 @@ ai/tmp/
 # Index
 .og/
 
+# Benchmark corpus
+bench/corpus/
+
 # Git worktrees
 .worktrees/
