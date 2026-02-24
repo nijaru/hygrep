@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use anyhow::Result;
 use ignore::WalkBuilder;
@@ -70,6 +71,79 @@ const BINARY_EXTENSIONS: &[&str] = &[
     // Lock files
     ".lock",
 ];
+
+/// Metadata for a scanned file: (file_size, mtime_secs).
+pub type FileMetadata = (u64, u64);
+
+/// Scan directory tree for file metadata only (no content reads).
+/// Returns path -> (file_size, mtime_secs) for each eligible file.
+pub fn scan_metadata(root: &Path) -> Result<HashMap<PathBuf, FileMetadata>> {
+    let mut results = HashMap::new();
+
+    let walker = WalkBuilder::new(root)
+        .hidden(true)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .follow_links(false)
+        .max_filesize(Some(MAX_FILE_SIZE))
+        .build();
+
+    for entry in walker {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        if entry.file_type().is_none_or(|ft| !ft.is_file()) {
+            continue;
+        }
+
+        let path = entry.path();
+
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            if name.starts_with('.') {
+                continue;
+            }
+        }
+
+        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+            let ext_lower = format!(".{}", ext.to_lowercase());
+            if BINARY_EXTENSIONS.contains(&ext_lower.as_str()) {
+                continue;
+            }
+        }
+
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            if name.ends_with("-lock.json") {
+                continue;
+            }
+        }
+
+        if let Ok(meta) = std::fs::metadata(path) {
+            let size = meta.len();
+            let mtime = meta
+                .modified()
+                .unwrap_or(SystemTime::UNIX_EPOCH)
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            results.insert(path.to_path_buf(), (size, mtime));
+        }
+    }
+
+    Ok(results)
+}
+
+/// Get mtime for a single file path.
+pub fn file_mtime(path: &Path) -> u64 {
+    std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .unwrap_or(SystemTime::UNIX_EPOCH)
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
 
 /// Scan directory tree for text files, returning path -> content map.
 pub fn scan(root: &Path) -> Result<HashMap<PathBuf, String>> {

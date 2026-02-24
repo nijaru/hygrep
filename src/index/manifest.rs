@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::embedder;
 
-pub const MANIFEST_VERSION: u32 = 9;
+pub const MANIFEST_VERSION: u32 = 10;
 const MANIFEST_FILE: &str = "manifest.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,6 +20,8 @@ pub struct Manifest {
 pub struct FileEntry {
     pub hash: String,
     pub blocks: Vec<String>,
+    #[serde(default)]
+    pub mtime: u64,
 }
 
 impl Default for Manifest {

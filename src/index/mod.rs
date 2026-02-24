@@ -199,13 +199,18 @@ impl SemanticIndex {
         store.flush()?;
 
         // Update manifest
-        for (blocks, rel_path, file_hash) in &all_blocks {
+        for (i, (blocks, rel_path, file_hash)) in all_blocks.iter().enumerate() {
             if !blocks.is_empty() {
+                let mtime = to_process
+                    .get(i)
+                    .map(|(path, _, _, _)| walker::file_mtime(path))
+                    .unwrap_or(0);
                 manifest.files.insert(
                     rel_path.clone(),
                     FileEntry {
                         hash: file_hash.clone(),
                         blocks: blocks.iter().map(|b| b.id.clone()).collect(),
+                        mtime,
                     },
                 );
             }
@@ -382,13 +387,12 @@ impl SemanticIndex {
         Ok(manifest.files.values().map(|e| e.blocks.len()).sum())
     }
 
-    /// Get stale files (changed + deleted).
-    pub fn get_stale_files(
+    /// Get stale files by comparing content hashes against manifest.
+    fn get_stale_files_with_manifest(
         &self,
         files: &HashMap<PathBuf, String>,
-    ) -> Result<(Vec<PathBuf>, Vec<String>)> {
-        let manifest = Manifest::load(&self.index_dir)?;
-
+        manifest: &Manifest,
+    ) -> (Vec<PathBuf>, Vec<String>) {
         let mut changed = Vec::new();
         let mut current_rel_files = std::collections::HashSet::new();
 
@@ -410,18 +414,152 @@ impl SemanticIndex {
             .cloned()
             .collect();
 
-        Ok((changed, deleted))
+        (changed, deleted)
+    }
+
+    /// Fast staleness check using mtime only (no content reads).
+    /// Returns paths that may have changed (mtime differs or missing from manifest)
+    /// and deleted paths (in manifest but not on disk).
+    pub fn get_stale_files_fast(
+        &self,
+        metadata: &HashMap<PathBuf, walker::FileMetadata>,
+    ) -> Result<(Vec<PathBuf>, Vec<String>)> {
+        let manifest = Manifest::load(&self.index_dir)?;
+
+        let mut maybe_changed = Vec::new();
+        let mut current_rel_files = std::collections::HashSet::new();
+
+        for (path, &(_size, mtime)) in metadata {
+            let rel_path = self.to_relative(path);
+            current_rel_files.insert(rel_path.clone());
+
+            match manifest.files.get(&rel_path) {
+                Some(entry) if entry.mtime == mtime && mtime > 0 => {}
+                _ => maybe_changed.push(path.clone()),
+            }
+        }
+
+        let deleted: Vec<String> = manifest
+            .files
+            .keys()
+            .filter(|k| !current_rel_files.contains(*k))
+            .cloned()
+            .collect();
+
+        Ok((maybe_changed, deleted))
+    }
+
+    /// Check for stale files and update if needed. Single manifest load.
+    /// Uses metadata for fast pre-check, only reads content for changed files.
+    pub fn check_and_update(
+        &self,
+        metadata: &HashMap<PathBuf, walker::FileMetadata>,
+    ) -> Result<(usize, Option<IndexStats>)> {
+        let manifest = Manifest::load(&self.index_dir)?;
+
+        // Fast mtime pre-check
+        let mut maybe_changed = Vec::new();
+        let mut current_rel_files = std::collections::HashSet::new();
+
+        for (path, &(_size, mtime)) in metadata {
+            let rel_path = self.to_relative(path);
+            current_rel_files.insert(rel_path.clone());
+
+            match manifest.files.get(&rel_path) {
+                Some(entry) if entry.mtime == mtime && mtime > 0 => {}
+                _ => maybe_changed.push(path.clone()),
+            }
+        }
+
+        let deleted: Vec<String> = manifest
+            .files
+            .keys()
+            .filter(|k| !current_rel_files.contains(*k))
+            .cloned()
+            .collect();
+
+        let stale_count = maybe_changed.len() + deleted.len();
+        if stale_count == 0 {
+            return Ok((0, None));
+        }
+
+        // Read content only for potentially changed files, then hash-check
+        let mut changed_files: HashMap<PathBuf, String> = HashMap::new();
+        for path in &maybe_changed {
+            let raw = match std::fs::read(path) {
+                Ok(data) => data,
+                Err(_) => continue,
+            };
+            let check_len = raw.len().min(8192);
+            if raw[..check_len].contains(&0) {
+                continue;
+            }
+            let content = match String::from_utf8(raw) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let rel_path = self.to_relative(path);
+            let file_hash = hash_content(&content);
+            match manifest.files.get(&rel_path) {
+                Some(entry) if entry.hash == file_hash => {}
+                _ => {
+                    changed_files.insert(path.clone(), content);
+                }
+            }
+        }
+
+        if changed_files.is_empty() && deleted.is_empty() {
+            return Ok((0, None));
+        }
+
+        let actual_stale = changed_files.len() + deleted.len();
+
+        // Delete vectors for deleted files
+        let mut deleted_count = 0;
+        {
+            let mut store = self.open_store()?;
+            let mut manifest = Manifest::load(&self.index_dir)?;
+
+            for rel_path in &deleted {
+                if let Some(entry) = manifest.files.remove(rel_path) {
+                    for block_id in &entry.blocks {
+                        let _ = store.delete(block_id);
+                    }
+                    deleted_count += entry.blocks.len();
+                }
+            }
+
+            if deleted_count > 0 {
+                store.flush()?;
+                manifest.save(&self.index_dir)?;
+            }
+        }
+
+        let mut stats = self.index(&changed_files, None)?;
+        stats.deleted += deleted_count;
+        Ok((actual_stale, Some(stats)))
+    }
+
+    /// Get stale files (changed + deleted). Loads manifest internally.
+    pub fn get_stale_files(
+        &self,
+        files: &HashMap<PathBuf, String>,
+    ) -> Result<(Vec<PathBuf>, Vec<String>)> {
+        let manifest = Manifest::load(&self.index_dir)?;
+        Ok(self.get_stale_files_with_manifest(files, &manifest))
     }
 
     /// Quick check: how many files need updating?
     pub fn needs_update(&self, files: &HashMap<PathBuf, String>) -> Result<usize> {
-        let (changed, deleted) = self.get_stale_files(files)?;
+        let manifest = Manifest::load(&self.index_dir)?;
+        let (changed, deleted) = self.get_stale_files_with_manifest(files, &manifest);
         Ok(changed.len() + deleted.len())
     }
 
     /// Incremental update.
     pub fn update(&self, files: &HashMap<PathBuf, String>) -> Result<IndexStats> {
-        let (changed, deleted) = self.get_stale_files(files)?;
+        let manifest = Manifest::load(&self.index_dir)?;
+        let (changed, deleted) = self.get_stale_files_with_manifest(files, &manifest);
 
         if changed.is_empty() && deleted.is_empty() {
             return Ok(IndexStats {

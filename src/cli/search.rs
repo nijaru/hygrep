@@ -73,23 +73,26 @@ pub fn run(params: &SearchParams) -> Result<()> {
     let mut index = SemanticIndex::new(&index_root, None)?;
 
     if !params.no_index {
-        // Auto-update stale files
+        // Auto-update stale files using metadata-only scan (no content reads)
         if !params.quiet && index_root != search_path {
             eprintln!("Using index at {}", index_root.display());
         }
 
-        let files = walker::scan(&index_root)?;
-        let stale_count = index.needs_update(&files)?;
+        let metadata = walker::scan_metadata(&index_root)?;
+        let (stale_count, stats) = index.check_and_update(&metadata)?;
 
         if stale_count > 0 {
             if !params.quiet {
-                eprint!("Updating {stale_count} changed files...");
-            }
-            let stats = index.update(&files)?;
-            if !params.quiet && stats.blocks > 0 {
-                eprintln!(" updated {} blocks", stats.blocks);
-            } else if !params.quiet {
-                eprintln!(" done");
+                if let Some(stats) = &stats {
+                    if stats.blocks > 0 {
+                        eprintln!(
+                            "Updating {stale_count} changed files... {} blocks",
+                            stats.blocks
+                        );
+                    } else {
+                        eprintln!("Updating {stale_count} changed files... done");
+                    }
+                }
             }
         }
     }
