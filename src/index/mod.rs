@@ -480,10 +480,10 @@ impl SemanticIndex {
         }
 
         // Read content only for potentially changed files, then hash-check.
-        // Stat before read so mtime is never newer than the content we index.
+        // Use mtime from scan_metadata (already captured via stat).
         let mut changed_files: HashMap<PathBuf, (String, u64)> = HashMap::new();
         for path in &maybe_changed {
-            let mtime = walker::file_mtime(path);
+            let mtime = metadata.get(path).map(|&(_size, mt)| mt).unwrap_or(0);
             let raw = match std::fs::read(path) {
                 Ok(data) => data,
                 Err(_) => continue,
@@ -555,7 +555,7 @@ impl SemanticIndex {
 
     /// Incremental update.
     pub fn update(&self, files: &HashMap<PathBuf, (String, u64)>) -> Result<IndexStats> {
-        let manifest = Manifest::load(&self.index_dir)?;
+        let mut manifest = Manifest::load(&self.index_dir)?;
         let (changed, deleted) = self.get_stale_files_with_manifest(files, &manifest);
 
         if changed.is_empty() && deleted.is_empty() {
@@ -570,7 +570,6 @@ impl SemanticIndex {
         let mut deleted_count = 0;
         {
             let mut store = self.open_store()?;
-            let mut manifest = Manifest::load(&self.index_dir)?;
 
             for rel_path in &deleted {
                 if let Some(entry) = manifest.files.remove(rel_path) {

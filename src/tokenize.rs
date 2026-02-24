@@ -153,7 +153,8 @@ pub fn split_identifiers(text: &str) -> String {
         if word.len() < 4 {
             continue;
         }
-        if KEYWORD_STOP_LIST.contains(&word) {
+        let word_lower = word.to_ascii_lowercase();
+        if KEYWORD_STOP_LIST.contains(&word_lower.as_str()) {
             continue;
         }
         let parts = split_word(word);

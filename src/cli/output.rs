@@ -98,7 +98,8 @@ fn print_default(results: &[SearchResult], show_score: bool) {
                 .collect();
             for line in preview_lines {
                 let truncated = if line.len() > 80 {
-                    format!("{}...", &line[..77])
+                    let end = line.floor_char_boundary(77);
+                    format!("{}...", &line[..end])
                 } else {
                     line.to_string()
                 };

@@ -75,21 +75,40 @@ const BINARY_EXTENSIONS: &[&str] = &[
 /// Metadata for a scanned file: (file_size, mtime_secs).
 pub type FileMetadata = (u64, u64);
 
-/// Scan directory tree for file metadata only (no content reads).
-/// Returns path -> (file_size, mtime_secs) for each eligible file.
-pub fn scan_metadata(root: &Path) -> Result<HashMap<PathBuf, FileMetadata>> {
-    let mut results = HashMap::new();
+/// Check if a file path should be skipped during scanning.
+fn should_skip(path: &Path) -> bool {
+    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+        if name.starts_with('.') || name.ends_with("-lock.json") {
+            return true;
+        }
+    }
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        let ext_lower = format!(".{}", ext.to_lowercase());
+        if BINARY_EXTENSIONS.contains(&ext_lower.as_str()) {
+            return true;
+        }
+    }
+    false
+}
 
-    let walker = WalkBuilder::new(root)
+/// Build a directory walker with standard filtering options.
+fn build_walker(root: &Path) -> ignore::Walk {
+    WalkBuilder::new(root)
         .hidden(true)
         .git_ignore(true)
         .git_global(true)
         .git_exclude(true)
         .follow_links(false)
         .max_filesize(Some(MAX_FILE_SIZE))
-        .build();
+        .build()
+}
 
-    for entry in walker {
+/// Scan directory tree for file metadata only (no content reads).
+/// Returns path -> (file_size, mtime_secs) for each eligible file.
+pub fn scan_metadata(root: &Path) -> Result<HashMap<PathBuf, FileMetadata>> {
+    let mut results = HashMap::new();
+
+    for entry in build_walker(root) {
         let entry = match entry {
             Ok(e) => e,
             Err(_) => continue,
@@ -100,24 +119,8 @@ pub fn scan_metadata(root: &Path) -> Result<HashMap<PathBuf, FileMetadata>> {
         }
 
         let path = entry.path();
-
-        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            if name.starts_with('.') {
-                continue;
-            }
-        }
-
-        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            let ext_lower = format!(".{}", ext.to_lowercase());
-            if BINARY_EXTENSIONS.contains(&ext_lower.as_str()) {
-                continue;
-            }
-        }
-
-        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            if name.ends_with("-lock.json") {
-                continue;
-            }
+        if should_skip(path) {
+            continue;
         }
 
         if let Ok(meta) = std::fs::metadata(path) {
@@ -150,54 +153,24 @@ pub fn file_mtime(path: &Path) -> u64 {
 pub fn scan(root: &Path) -> Result<HashMap<PathBuf, (String, u64)>> {
     let mut results = HashMap::new();
 
-    let walker = WalkBuilder::new(root)
-        .hidden(true) // Process hidden files check manually
-        .git_ignore(true) // Respect .gitignore
-        .git_global(true)
-        .git_exclude(true)
-        .follow_links(false)
-        .max_filesize(Some(MAX_FILE_SIZE))
-        .build();
-
-    for entry in walker {
+    for entry in build_walker(root) {
         let entry = match entry {
             Ok(e) => e,
             Err(_) => continue,
         };
 
-        // Skip directories
         if entry.file_type().is_none_or(|ft| !ft.is_file()) {
             continue;
         }
 
         let path = entry.path();
-
-        // Skip hidden files (starting with .)
-        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            if name.starts_with('.') {
-                continue;
-            }
-        }
-
-        // Skip binary extensions
-        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            let ext_lower = format!(".{}", ext.to_lowercase());
-            if BINARY_EXTENSIONS.contains(&ext_lower.as_str()) {
-                continue;
-            }
-        }
-
-        // Skip lock json files
-        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-            if name.ends_with("-lock.json") {
-                continue;
-            }
+        if should_skip(path) {
+            continue;
         }
 
         // Stat before read so mtime is never newer than the content we index
         let mtime = file_mtime(path);
 
-        // Read and check for binary content
         let raw = match std::fs::read(path) {
             Ok(data) => data,
             Err(_) => continue,
@@ -209,7 +182,6 @@ pub fn scan(root: &Path) -> Result<HashMap<PathBuf, (String, u64)>> {
             continue;
         }
 
-        // Decode as UTF-8
         let content = match String::from_utf8(raw) {
             Ok(s) => s,
             Err(_) => continue,

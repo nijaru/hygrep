@@ -208,15 +208,11 @@ fn tool_search(args: &Value) -> Result<Value, Value> {
     let mut idx = SemanticIndex::new(&index_root, None)
         .map_err(|e| json_rpc_error(-32000, &e.to_string()))?;
 
-    // Auto-update stale files
-    let files = walker::scan(&index_root).map_err(|e| json_rpc_error(-32000, &e.to_string()))?;
-    let stale = idx
-        .needs_update(&files)
+    // Auto-update stale files (metadata-only scan, read content only for changed files)
+    let metadata =
+        walker::scan_metadata(&index_root).map_err(|e| json_rpc_error(-32000, &e.to_string()))?;
+    idx.check_and_update(&metadata)
         .map_err(|e| json_rpc_error(-32000, &e.to_string()))?;
-    if stale > 0 {
-        idx.update(&files)
-            .map_err(|e| json_rpc_error(-32000, &e.to_string()))?;
-    }
 
     idx.set_search_scope(Some(&path));
     let mut results = idx
