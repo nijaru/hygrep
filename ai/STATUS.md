@@ -2,7 +2,7 @@
 
 | Metric    | Value                          | Updated    |
 | --------- | ------------------------------ | ---------- |
-| Package   | omengrep 0.1.0 (binary: og)    | 2026-02-24 |
+| Package   | omengrep 0.0.1 (binary: og)    | 2026-02-24 |
 | Models    | LateOn-Code-edge (48d, single) | 2026-02-16 |
 | omendb    | 0.0.30 (multi-vector+compact)  | 2026-02-23 |
 | Manifest  | v10 (mtime field)              | 2026-02-23 |
@@ -25,7 +25,7 @@ MCP:    og mcp (JSON-RPC/stdio) -> og_search, og_similar, og_status tools
 - omendb 0.0.30 in use (write regression fixed)
 - Release pipeline ready: `.github/workflows/release.yml`
 - Homebrew formula ready: `nijaru/homebrew-tap/Formula/og.rb`
-- Tag `v0.1.0` when unblocked
+- Tag `v0.0.1` when unblocked
 
 ## Remaining Work
 

@@ -40,10 +40,14 @@
     {
       "ts": "2026-02-24T23:07:45.809Z",
       "msg": "Unblocked omendb crates.io publish, bumped to v0.1.0 and tagged"
+    },
+    {
+      "ts": "2026-02-25T22:12:33.256Z",
+      "msg": "Publish unblocked by omendb crates.io release. Bumped version to 0.0.2 for release."
     }
   ],
   "created_at": "2026-02-14T21:13:55.005Z",
-  "updated_at": "2026-02-24T23:07:45.831Z",
-  "completed_at": "2026-02-24T23:07:45.831Z",
+  "updated_at": "2026-02-25T22:12:33.282Z",
+  "completed_at": "2026-02-25T22:12:33.282Z",
   "external": {}
 }

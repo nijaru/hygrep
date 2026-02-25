@@ -71,6 +71,7 @@ impl SemanticIndex {
 
     /// Build index from scanned files. Each entry is (content, mtime) where
     /// mtime was captured before reading content to avoid race conditions.
+    #[allow(clippy::type_complexity)]
     pub fn index(
         &self,
         files: &HashMap<PathBuf, (String, u64)>,

@@ -18,6 +18,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_TOOLCHAIN: nightly-2025-12-04
+  RUSTC_BOOTSTRAP: 1
 
 jobs:
   # ============================================================================
@@ -111,12 +112,6 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact_name: og-aarch64-apple-darwin
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            artifact_name: og-x86_64-unknown-linux-gnu
-          - os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-            artifact_name: og-aarch64-unknown-linux-gnu
     steps:
       - uses: actions/checkout@v4
 
@@ -247,8 +242,6 @@ jobs:
           VERSION=${{ needs.verify.outputs.version }}
 
           MAC_ARM64_SHA=$(cat og-aarch64-apple-darwin.tar.gz.sha256 | awk '{print $1}')
-          LINUX_X64_SHA=$(cat og-x86_64-unknown-linux-gnu.tar.gz.sha256 | awk '{print $1}')
-          LINUX_ARM64_SHA=$(cat og-aarch64-unknown-linux-gnu.tar.gz.sha256 | awk '{print $1}')
           SOURCE_SHA=$(curl -sL "https://github.com/nijaru/omengrep/archive/refs/tags/$TAG.tar.gz" | sha256sum | awk '{print $1}')
 
           sed -i "s/version \".*\"/version \"$VERSION\"/" Formula/og.rb
@@ -259,7 +252,7 @@ jobs:
           import re
           with open('Formula/og.rb') as f:
               content = f.read()
-          shas = ['$MAC_ARM64_SHA', '$SOURCE_SHA', '$LINUX_ARM64_SHA', '$LINUX_X64_SHA']
+          shas = ['$MAC_ARM64_SHA', '$SOURCE_SHA']
           pattern = r'sha256 \"[a-fA-F0-9]{64}\"'
           matches = list(re.finditer(pattern, content))
           for i, m in enumerate(matches):
