@@ -191,12 +191,13 @@ jobs:
         id: check
         run: |
           VERSION=${{ needs.verify.outputs.version }}
-          CRATES_VERSION=$(curl -sf https://crates.io/api/v1/crates/omengrep | jq -r '.versions[0].num' || echo "0.0.0")
-          if [ "$VERSION" = "$CRATES_VERSION" ]; then
+          # Use the crates.io API to check for the specific version
+          if curl -sf "https://crates.io/api/v1/crates/omengrep/$VERSION" > /dev/null; then
             echo "skip=true" >> $GITHUB_OUTPUT
-            echo "Version $VERSION already on crates.io, skipping"
+            echo "Version $VERSION already exists on crates.io, skipping publish"
           else
             echo "skip=false" >> $GITHUB_OUTPUT
+            echo "Version $VERSION not found on crates.io, proceeding with publish"
           fi
 
       - uses: dtolnay/rust-toolchain@master
@@ -226,7 +227,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: nijaru/homebrew-tap
-          token: ${{ secrets.TAP_UPDATE_TOKEN }}
+          # Fallback to GITHUB_TOKEN if TAP_UPDATE_TOKEN is missing (will only work if the tap is in the same org/user and has permissions)
+          token: ${{ secrets.TAP_UPDATE_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Download checksums
         run: |
