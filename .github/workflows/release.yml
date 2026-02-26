@@ -65,24 +65,6 @@ jobs:
           fi
           echo "Version match confirmed"
 
-      - name: Check if already published to crates.io
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          CRATES_VERSION=$(curl -sf https://crates.io/api/v1/crates/omengrep | jq -r '.versions[0].num' || echo "0.0.0")
-
-          echo "Target version: $VERSION"
-          echo "Latest on crates.io: $CRATES_VERSION"
-
-          if [ "$VERSION" = "$CRATES_VERSION" ]; then
-            echo "WARNING: Version $VERSION already published to crates.io"
-            echo "Will skip crates.io publish step"
-            echo "ALREADY_PUBLISHED=true" >> $GITHUB_ENV
-          else
-            echo "Version $VERSION is new"
-            echo "ALREADY_PUBLISHED=false" >> $GITHUB_ENV
-          fi
-
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
@@ -105,7 +87,6 @@ jobs:
 
   build-binaries:
     name: Build ${{ matrix.target }}
-    # We no longer 'need' verify here so it can run in parallel with clippy/fmt
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: true
@@ -192,34 +173,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check if already published
-        id: check
-        env:
-          VERSION: ${{ needs.verify.outputs.version }}
-        run: |
-          # Use the main crates API (same as verify job) — more reliable than per-version endpoint
-          CRATES_DATA=$(curl -sf "https://crates.io/api/v1/crates/omengrep" 2>/dev/null)
-          if [ -n "$CRATES_DATA" ] && echo "$CRATES_DATA" | jq -e ".versions[] | select(.num == \"$VERSION\")" > /dev/null 2>&1; then
-            echo "skip=true" >> $GITHUB_OUTPUT
-            echo "Version $VERSION already exists on crates.io, skipping publish"
-          else
-            echo "skip=false" >> $GITHUB_OUTPUT
-            echo "Version $VERSION not found on crates.io, proceeding with publish"
-          fi
-
       - uses: dtolnay/rust-toolchain@master
-        if: steps.check.outputs.skip != 'true'
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
 
       - name: Get crates.io token via OIDC
-        if: steps.check.outputs.skip != 'true'
         uses: rust-lang/crates-io-auth-action@v1
         id: crates-io-auth
 
       - name: Publish to crates.io
-        if: steps.check.outputs.skip != 'true'
-        run: cargo publish --token ${{ steps.crates-io-auth.outputs.token }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          cargo publish || {
+            status=$?
+            if cargo search omengrep --limit 5 2>/dev/null | grep -q "omengrep = \"$VERSION\""; then
+              echo "Version $VERSION already published to crates.io, skipping"
+            else
+              exit $status
+            fi
+          }
 
   # ============================================================================
   # STAGE 5: Update Homebrew tap
@@ -234,7 +208,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: nijaru/homebrew-tap
-          # Fallback to GITHUB_TOKEN if TAP_UPDATE_TOKEN is missing (will only work if the tap is in the same org/user and has permissions)
           token: ${{ secrets.TAP_UPDATE_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Download checksums
@@ -263,7 +236,8 @@ jobs:
           with open('Formula/og.rb') as f:
               content = f.read()
           shas = ['$MAC_ARM64_SHA', '$SOURCE_SHA']
-          pattern = r'sha256 \"[a-fA-F0-9]{64}\"'
+          # Match any existing sha256 value (including PLACEHOLDER)
+          pattern = r'sha256 \"[^\"]*\"'
           matches = list(re.finditer(pattern, content))
           for i, m in enumerate(matches):
               if i < len(shas):
@@ -280,8 +254,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/og.rb
-          git commit -m "chore: update og to $TAG"
-          git push
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: update og to $TAG"
+            git push
+          else
+            echo "Formula already up to date"
+          fi
 
   # ============================================================================
   # STAGE 6: Finalize release
