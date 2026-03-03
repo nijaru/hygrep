@@ -23,8 +23,9 @@ None.
 
 ## Remaining Work
 
-- **Quality re-bench** — rebuild index + run quality.py to measure extraction/BM25/boost impact
-- **MCP testing** — deferred, CLI is sufficient for now
+- **Boost investigation** — Recall@1=Recall@5=0 consistently; correct results land at rank ~9. Boost likely hurting NL→code queries. Test with boost disabled to quantify.
+- **Full corpus bench** — run with 22091 corpus + 500 queries for production-quality signal (~100 min)
+- **MCP** — deferred, CLI sufficient for now
 
 ## Benchmarks
 
@@ -36,12 +37,20 @@ Performance bench: `benches/omendb.rs` (divan)
 | search_semantic | 422.0 us          | 539.4 us | +28%  |
 | store_write     | 5.25 ms           | 6.169 ms | +18%  |
 
-Quality bench: `bench/quality.py` (CodeSearchNet)
+Quality bench: `bench/quality.py` (CodeSearchNet, 2000 corpus seed=42)
 
-| Metric    | Before (2026-02-22) | After (2026-02-24) |
-| --------- | ------------------- | ------------------ |
-| MRR@10    | 0.0082              | 0.0062             |
-| Recall@10 | 0.08                | 0.06               |
+| Run                  | Queries | MRR@10 | R@1  | R@5  | R@10 | Date       |
+| -------------------- | ------- | ------ | ---- | ---- | ---- | ---------- |
+| baseline             | 100     | 0.0082 | 0.00 | 0.00 | 0.08 | 2026-02-22 |
+| after a2a0a02 bundle | 100     | 0.0062 | 0.00 | 0.00 | 0.06 | 2026-02-24 |
+| current (confirmed)  | 100     | 0.0062 | 0.00 | 0.00 | 0.06 | 2026-03-03 |
+| current (500q)       | 500     | 0.0049 | 0.00 | 0.00 | 0.04 | 2026-03-03 |
+
+**Key finding (2026-03-03):** Recall@1=Recall@5=0 in ALL runs. Correct results always land
+at ranks 7-10 (avg ~9). This is a **ranking** failure, not retrieval — BM25+semantic finds
+the right code within top-10 but boost reranks it to the bottom. Likely cause: name-match
+boost (2.5x) favors blocks with identifier-matching terms over the semantically correct answer
+when queries are natural language docstrings.
 
 ## Competitive Context
 
