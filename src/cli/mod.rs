@@ -133,6 +133,12 @@ pub fn run() -> anyhow::Result<()> {
         },
         Some(Command::Mcp) => mcp::run(),
         Some(Command::InstallClaudeCode) => mcp::install_claude_code(),
+        None if cli.query.is_none() => {
+            use clap::CommandFactory;
+            Cli::command().print_help()?;
+            println!();
+            Ok(())
+        }
         None => search::run(&search::SearchParams {
             query: cli.query.as_deref(),
             path: &cli.path,
