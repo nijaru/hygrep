@@ -1,0 +1,19 @@
+{
+  "project": "tk",
+  "ref": "fuap",
+  "title": "og outline command",
+  "description": "Add 'og outline <file>' subcommand: reads block metadata from index (name, type, line) and prints structured view of file without content. No re-embedding needed. Low effort — data already in store. Useful for agents and codebase navigation. Similar to osgrep skeleton mode.",
+  "status": "open",
+  "priority": 3,
+  "labels": [],
+  "assignees": [],
+  "parent": null,
+  "blocked_by": [],
+  "estimate": null,
+  "due_date": null,
+  "logs": [],
+  "created_at": "2026-03-04T08:49:03.915Z",
+  "updated_at": "2026-03-04T08:49:03.915Z",
+  "completed_at": null,
+  "external": {}
+}
