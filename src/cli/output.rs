@@ -97,13 +97,7 @@ fn print_default(results: &[SearchResult], show_score: bool, context_lines: usiz
                     .take(context_lines)
                     .collect();
                 for line in preview_lines {
-                    let truncated = if line.len() > 120 {
-                        let end = line.floor_char_boundary(117);
-                        format!("{}...", &line[..end])
-                    } else {
-                        line.to_string()
-                    };
-                    println!("  {}", truncated.dimmed());
+                    println!("  {}", line.dimmed());
                 }
                 println!();
             }

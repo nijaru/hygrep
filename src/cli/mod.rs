@@ -30,7 +30,7 @@ pub struct Cli {
     num_results: usize,
 
     /// Minimum similarity score (0 = disabled).
-    #[arg(long = "threshold", visible_alias = "min-score", default_value = "0.0")]
+    #[arg(long = "threshold", default_value = "0.0")]
     threshold: f32,
 
     /// JSON output.
