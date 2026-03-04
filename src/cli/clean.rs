@@ -36,7 +36,7 @@ pub fn run(path: &Path, recursive: bool) -> Result<()> {
                         }
                         Err(e) => {
                             let msg = e.to_string();
-                            if msg.contains("older version") || msg.contains("different model") {
+                            if msg.contains("older version") {
                                 eprintln!(
                                     "Parent index needs rebuild. Run: og build --force {}",
                                     parent.display()

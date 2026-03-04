@@ -80,8 +80,10 @@ pub fn run(path: &Path, force: bool, quiet: bool) -> Result<()> {
                     if !quiet {
                         eprintln!("Rebuilding (index format changed)...");
                     }
-                    let idx = SemanticIndex::new(&build_path, None)?;
-                    idx.clear()?;
+                    let index_dir = build_path.join(crate::index::INDEX_DIR);
+                    if index_dir.exists() {
+                        std::fs::remove_dir_all(&index_dir)?;
+                    }
                     build_index(&build_path, quiet)?;
                 } else {
                     eprintln!("{e}");

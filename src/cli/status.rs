@@ -17,7 +17,7 @@ pub fn run(path: &Path) -> Result<()> {
         Ok(i) => i,
         Err(e) => {
             let msg = e.to_string();
-            if msg.contains("older version") || msg.contains("different model") {
+            if msg.contains("older version") {
                 eprintln!("Index needs rebuild. Run: og build --force");
                 return Ok(());
             }
@@ -52,7 +52,7 @@ pub fn run(path: &Path) -> Result<()> {
         }
         Err(e) => {
             let msg = e.to_string();
-            if msg.contains("older version") || msg.contains("different model") {
+            if msg.contains("older version") {
                 eprintln!("Index needs rebuild. Run: og build --force");
             } else {
                 eprintln!("{e}");
