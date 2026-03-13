@@ -1,6 +1,6 @@
 use std::sync::Mutex;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use ndarray::Array2;
 use ort::value::TensorRef;
 
@@ -18,8 +18,10 @@ pub struct OnnxEmbedder {
 impl OnnxEmbedder {
     pub fn new(model_path: &str, tokenizer_path: &str, config: &ModelConfig) -> Result<Self> {
         let session = ort::session::Session::builder()?
-            .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)?
-            .with_intra_threads(num_cpus())?
+            .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)
+            .map_err(|e| anyhow!("Failed to set ONNX optimization level: {e}"))?
+            .with_intra_threads(num_cpus())
+            .map_err(|e| anyhow!("Failed to configure ONNX thread count: {e}"))?
             .commit_from_file(model_path)
             .context("Failed to load ONNX model")?;
         let tokenizer = TokenizerWrapper::new(tokenizer_path, config)?;

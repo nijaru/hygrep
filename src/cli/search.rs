@@ -135,7 +135,7 @@ pub fn run(params: &SearchParams) -> Result<()> {
         match regex::Regex::new(pattern) {
             Ok(re) => {
                 results.retain(|r| {
-                    r.content.as_deref().map_or(false, |c| re.is_match(c)) || re.is_match(&r.name)
+                    r.content.as_deref().is_some_and(|c| re.is_match(c)) || re.is_match(&r.name)
                 });
             }
             Err(e) => {
