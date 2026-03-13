@@ -5,7 +5,7 @@
 | Package   | omengrep 0.0.1 → 0.0.2 (wip)   | 2026-03-04 |
 | RC tag    | v0.0.2-rc.1                    | 2026-03-04 |
 | Models    | LateOn-Code-edge (48d, single) | 2026-02-16 |
-| omendb    | 0.0.30 (multi-vector+compact)  | 2026-02-23 |
+| omendb    | 0.0.32 (published crate)       | 2026-03-13 |
 | Manifest  | v10 (mtime field)              | 2026-02-23 |
 | Toolchain | nightly-2025-12-04             | 2026-02-14 |
 | Tests     | 17 integration, 17 unit        | 2026-03-04 |
@@ -21,6 +21,8 @@ MCP:    og mcp (JSON-RPC/stdio) -> og_search, og_similar, og_status tools
 ## Active Work
 
 v0.0.2-rc.1 tagged. Pending final release: bump Cargo.toml, CHANGELOG, tag v0.0.2, cargo publish, GH release (tk-jw5v).
+
+Current session: validated published `omendb` `0.0.32` against `omengrep` after removing the local path dependency. `cargo test` passed (34 tests) and `og build` / `og search` / `og status` smoke tests passed end to end (tk-577n).
 
 Next feature: `og outline <file>` — show block structure without content (tk-fuap).
 

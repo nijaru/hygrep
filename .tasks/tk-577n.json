@@ -1,0 +1,48 @@
+{
+  "project": "tk",
+  "ref": "577n",
+  "title": "Test local omendb dev in omengrep",
+  "description": "Switch omengrep to the local omendb development checkout, run build/tests, and document any integration issues.",
+  "status": "done",
+  "priority": 2,
+  "labels": [],
+  "assignees": [],
+  "parent": null,
+  "blocked_by": [],
+  "estimate": null,
+  "due_date": null,
+  "logs": [
+    {
+      "ts": "2026-03-13T05:50:53.841Z",
+      "msg": "Inspected omengrep state: Cargo.toml currently uses crates.io omendb 0.0.30. Searching local filesystem for omendb checkout before switching dependency."
+    },
+    {
+      "ts": "2026-03-13T05:51:30.118Z",
+      "msg": "Located local omendb checkout at /Users/nick/github/omendb/omendb and updated ai/STATUS.md before implementation."
+    },
+    {
+      "ts": "2026-03-13T05:51:51.304Z",
+      "msg": "Confirmed local omendb 0.0.32 API is compatible on paper (VectorStore::open, multi_vector_with, persist, query_with_options, search_multi_with_text, get_metadata_by_id). Switching dependency to path checkout for validation."
+    },
+    {
+      "ts": "2026-03-13T05:53:15.380Z",
+      "msg": "Validation succeeded with local omendb path dependency: cargo test passed (34 tests), cargo build --release passed. No omengrep code changes required beyond dependency wiring and STATUS update."
+    },
+    {
+      "ts": "2026-03-13T07:42:08.330Z",
+      "msg": "User indicated the omendb dev release should now be published. Verifying crates.io availability before removing the local path dependency and revalidating omengrep."
+    },
+    {
+      "ts": "2026-03-13T07:42:19.729Z",
+      "msg": "Confirmed omendb 0.0.32 is on crates.io. Switching omengrep from local path dependency back to the published crate for final validation."
+    },
+    {
+      "ts": "2026-03-13T07:42:53.311Z",
+      "msg": "Published omendb 0.0.32 validation: cargo test passed (34 tests). Running real og build/search/status smoke test against the registry crate."
+    }
+  ],
+  "created_at": "2026-03-13T05:50:33.680Z",
+  "updated_at": "2026-03-13T07:43:21.046Z",
+  "completed_at": "2026-03-13T07:43:21.046Z",
+  "external": {}
+}
