@@ -1,6 +1,7 @@
 # Competitive Analysis: Local Semantic Code Search CLIs
 
 **Researched:** 2026-03-03
+**Refreshed:** 2026-03-13 (`qmd` positioning, omengrep release status)
 **Scope:** Local/offline tools only. Cloud-SaaS tools included where they have a local mode or are commonly confused with local tools.
 
 ---
@@ -10,11 +11,12 @@
 | Tool                 | Lang       | Local?                        | Model                                   | Approach                                    | Stars  | Status                            |
 | -------------------- | ---------- | ----------------------------- | --------------------------------------- | ------------------------------------------- | ------ | --------------------------------- |
 | **ColGrep**          | Rust       | Yes (100%)                    | LateOn-Code-edge 17M                    | Multi-vector ColBERT + NextPlaid DB         | 173    | Active (v1.0.8, Feb 2026)         |
-| **omengrep (og)**    | Rust       | Yes (100%)                    | LateOn-Code-edge 17M INT8               | Multi-vector ColBERT + omendb MuVERA + BM25 | —      | Active (v0.0.1, Feb 2026)         |
+| **omengrep (og)**    | Rust       | Yes (100%)                    | LateOn-Code-edge 17M INT8               | Multi-vector ColBERT + omendb MuVERA + BM25 | —      | Active (v0.0.2, Mar 2026)         |
 | **smgrep**           | Rust       | Yes (100%)                    | IBM Granite + answerai-colbert reranker | Dense embed + ColBERT rerank + LanceDB      | 56     | Early (v0.6.0, Nov 2025, stalled) |
 | **grepai**           | Go         | Yes (Ollama) / Optional cloud | nomic-embed-text (Ollama) or OpenAI     | Single-vector + call graph                  | 1,300  | Active (v0.33.0, Feb 2026)        |
 | **osgrep**           | TypeScript | Yes (100%)                    | onnxruntime-node + ColBERT rerank       | Dense embed + ColBERT rerank                | 988    | Stable (v0.5.16, Dec 2025)        |
 | **mgrep**            | TypeScript | No (cloud-backed)             | Mixedbread Search (proprietary)         | Cloud sync + semantic retrieval + rerank    | 3,391  | Active (v0.1.10, Jan 2026)        |
+| **qmd**              | TypeScript | Yes (100%)                    | GGUF local models via node-llama-cpp    | SQLite FTS5 + vectors + local LLM rerank    | 7,300  | Active (Mar 2026)                 |
 | **vexor**            | Python     | Optional (local mode)         | Configurable (OpenAI/Gemini/local)      | Multi-mode indexing, configurable providers | 204    | Active (v0.23.1, Feb 2026)        |
 | **ast-grep (sg)**    | Rust       | Yes (100%)                    | None (structural only)                  | AST pattern matching, no embeddings         | 12,710 | Active (v0.41.0, Feb 2026)        |
 | **Augment Code CLI** | Node       | No (cloud)                    | Custom (proprietary)                    | Cloud context engine, Google Cloud index    | N/A    | Beta (commercial)                 |
@@ -288,7 +290,47 @@ Files leave the machine. Not air-gap compatible. Requires API key. Data privacy 
 
 ---
 
-## 6. ast-grep (sg)
+## 6. qmd (tobi)
+
+**Repository:** https://github.com/tobi/qmd
+**Latest public snapshot reviewed:** GitHub README crawled March 2026 | 7.3k stars
+
+### Overview
+
+`qmd` is not a direct code-search CLI competitor, but it is a serious adjacent competitor for local agent retrieval. It focuses on markdown notes, meeting transcripts, documentation, and knowledge bases rather than AST-aware source-code extraction.
+
+### Architecture
+
+- **Search stack:** SQLite FTS5 BM25 + vector search + local LLM reranking
+- **Runtime:** `node-llama-cpp` with local GGUF models
+- **Storage:** `index.sqlite` with FTS, chunk vectors, and LLM cache
+- **Agent surface:** CLI, MCP server, and HTTP MCP mode
+
+### Invocation
+
+```bash
+qmd search "API" -c notes
+qmd search "authentication" --json -n 10
+qmd query "error handling" --all --files --min-score 0.4
+qmd get "docs/api-reference.md" --full
+qmd multi-get "docs/**/*.md"
+qmd mcp
+```
+
+### Competitive Notes
+
+- Strongest adjacent tool for "local search my knowledge base for agents"
+- Better agent ergonomics than most code-search tools: `get`, `multi-get`, structured output, collection-aware search, MCP
+- Uses local reranking and query expansion, which makes it feel closer to a local RAG engine than a grep replacement
+- Not AST-aware and not code-first; no tree-sitter extraction or function-level references documented
+
+### Relevance to omengrep
+
+`qmd` matters less as a retrieval-quality comparison and more as a product-positioning comparison. It competes for the same local-agent workflows, but on docs/knowledge-base search rather than code navigation.
+
+---
+
+## 7. ast-grep (sg)
 
 **Repository:** https://github.com/ast-grep/ast-grep
 **Latest release:** v0.41.0 (Feb 22, 2026) | 12,710 stars
@@ -319,7 +361,7 @@ sg scan                               # lint with rules
 
 ---
 
-## 7. Augment Code (auggie CLI)
+## 8. Augment Code (auggie CLI)
 
 **Docs:** https://docs.augmentcode.com/cli
 
@@ -351,7 +393,7 @@ Cloud. Requires login. Code indexed on Google Cloud. No offline mode.
 
 ---
 
-## 8. vexor (scarletkc)
+## 9. vexor (scarletkc)
 
 **Repository:** https://github.com/scarletkc/vexor
 **Latest release:** v0.23.1rc1 (Feb 24, 2026) | 204 stars
@@ -388,7 +430,7 @@ vexor search "query" --ext .py,.md      # filter extensions
 
 ---
 
-## 9. Additional Minor Tools
+## 10. Additional Minor Tools
 
 | Tool              | Lang   | Stars | Notes                                        |
 | ----------------- | ------ | ----- | -------------------------------------------- |
@@ -416,11 +458,13 @@ vexor search "query" --ext .py,.md      # filter extensions
 
 ### Where omengrep lags
 
-1. **Call graph tracing:** grepai and osgrep have this; omengrep does not.
-2. **Real-time daemon:** grepai, osgrep, and smgrep have background file watchers with sub-second update latency. omengrep auto-updates on search via mtime check but has no daemon.
-3. **Stars/visibility:** ColGrep (173), grepai (1,300), osgrep (988), mgrep (3,391) — omengrep is effectively unknown.
-4. **MRR quality:** MRR=0.046 on CodeSearchNet NL queries reveals the LateOn-Code-edge model is primarily optimized for code-to-code retrieval. NL→code quality ceiling is a model limitation shared with ColGrep.
-5. **Language count:** smgrep (37), grepai (12+ call graph), vs omengrep (25). Close.
+1. **Visibility and adoption:** ColGrep, grepai, osgrep, mgrep, and now qmd all have much more mindshare. omengrep is technically credible but still obscure.
+2. **Adjacent workflow coverage:** qmd has a stronger story for docs, notes, and knowledge-base retrieval in agent loops. omengrep is sharper on code, but narrower in scope.
+3. **Model ceiling for NL queries:** MRR=0.046 on CodeSearchNet NL queries suggests the current 17M model is still better at code-to-code than NL-to-code retrieval. This is partly a model constraint, not just a system issue.
+4. **Higher-end model option:** ColGrep already exposes a larger 130M model path. omengrep still has only the lightweight 17M INT8 option.
+5. **Language breadth:** smgrep advertises 37 languages; omengrep supports 25. Good, but not category-leading.
+
+Tracing and daemonization are workflow choices, not core weaknesses by themselves. For omengrep's current positioning, they matter less than relevance quality, code-navigation UX, and agent-friendly output.
 
 ---
 
@@ -446,6 +490,7 @@ ColGrep's end-to-end QA evaluation is currently the best published benchmark but
 - grepai: https://github.com/yoanbernabeu/grepai
 - osgrep: https://github.com/Ryandonofrio3/osgrep
 - mgrep: https://github.com/mixedbread-ai/mgrep
+- qmd: https://github.com/tobi/qmd
 - vexor: https://github.com/scarletkc/vexor
 - ast-grep: https://github.com/ast-grep/ast-grep
 - Augment Code CLI: https://docs.augmentcode.com/cli
