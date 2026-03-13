@@ -39,10 +39,14 @@
     {
       "ts": "2026-03-13T07:42:53.311Z",
       "msg": "Published omendb 0.0.32 validation: cargo test passed (34 tests). Running real og build/search/status smoke test against the registry crate."
+    },
+    {
+      "ts": "2026-03-13T08:31:57.142Z",
+      "msg": "Published omendb 0.0.32 is in use now. omengrep switched back to registry dependency, passed cargo test (34 tests), and passed og build/search/status smoke tests. Session state saved to ai/STATUS.md."
     }
   ],
   "created_at": "2026-03-13T05:50:33.680Z",
-  "updated_at": "2026-03-13T07:43:21.046Z",
+  "updated_at": "2026-03-13T08:31:57.142Z",
   "completed_at": "2026-03-13T07:43:21.046Z",
   "external": {}
 }

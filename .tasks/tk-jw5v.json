@@ -3,7 +3,7 @@
   "ref": "jw5v",
   "title": "v0.0.2 release",
   "description": "Bump Cargo.toml to 0.0.2, write CHANGELOG.md, tag v0.0.2, push, cargo publish, create GitHub release. Plan at docs/plans/2026-03-03-v0.0.2-release.md. All bug fixes are committed on main.",
-  "status": "active",
+  "status": "done",
   "priority": 2,
   "labels": [],
   "assignees": [],
@@ -18,7 +18,7 @@
     }
   ],
   "created_at": "2026-03-04T08:01:32.307Z",
-  "updated_at": "2026-03-04T13:03:38.289Z",
-  "completed_at": null,
+  "updated_at": "2026-03-04T13:08:25.945Z",
+  "completed_at": "2026-03-04T13:08:25.945Z",
   "external": {}
 }
