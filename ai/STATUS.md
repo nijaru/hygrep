@@ -5,9 +5,9 @@
 | Package   | omengrep 0.0.2 released        | 2026-03-13 |
 | Latest tag| v0.0.2                         | 2026-03-04 |
 | Models    | LateOn-Code-edge (48d, single) | 2026-02-16 |
-| omendb    | 0.0.32 (published crate)       | 2026-03-13 |
+| omendb    | 0.0.33 (local path)            | 2026-04-02 |
 | Manifest  | v10 (mtime field)              | 2026-02-23 |
-| Toolchain | nightly-2025-12-04             | 2026-02-14 |
+| Toolchain | nightly-2025-12-04 (Ed. 2024)  | 2026-04-02 |
 | Tests     | 17 integration, 17 unit        | 2026-03-04 |
 
 ## Architecture

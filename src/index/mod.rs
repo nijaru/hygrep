@@ -124,12 +124,12 @@ impl SemanticIndex {
 
         // Extract blocks in parallel, reusing Extractor per thread
         let all_blocks: Vec<(Vec<Block>, String, String, u64)> = to_process
-            .par_iter()
+            .into_par_iter()
             .map_init(
                 Extractor::new,
                 |extractor, (_path, content, rel_path, file_hash, mtime)| {
-                    let blocks = extractor.extract(rel_path, content).unwrap_or_default();
-                    (blocks, rel_path.clone(), file_hash.clone(), *mtime)
+                    let blocks = extractor.extract(&rel_path, content).unwrap_or_default();
+                    (blocks, rel_path, file_hash, mtime)
                 },
             )
             .collect();

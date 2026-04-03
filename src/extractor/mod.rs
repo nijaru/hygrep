@@ -85,8 +85,7 @@ impl Extractor {
                 }
 
                 let name = extract_name(&node, content_bytes);
-                let node_content = &content_bytes[node.start_byte()..node.end_byte()];
-                let node_text = String::from_utf8_lossy(node_content).into_owned();
+                let node_text = node.utf8_text(content_bytes).unwrap_or_default().to_string();
 
                 let capture_name = query.capture_names()[capture.index as usize];
                 let block_type = capture_name;
@@ -225,8 +224,13 @@ fn extract_name(node: &tree_sitter::Node, source: &[u8]) -> String {
 
 /// Fallback: return first 50 lines as a single block.
 fn fallback_head(file_path: &str, content: &str) -> Vec<Block> {
-    let lines: Vec<&str> = content.lines().take(50).collect();
-    let end_line = lines.len().saturating_sub(1);
+    let end_byte = content
+        .match_indices('\n')
+        .nth(49)
+        .map(|(i, _)| i)
+        .unwrap_or(content.len());
+    let fallback_content = &content[..end_byte];
+
     let name = Path::new(file_path)
         .file_name()
         .and_then(|n| n.to_str())
@@ -238,7 +242,7 @@ fn fallback_head(file_path: &str, content: &str) -> Vec<Block> {
         block_type: "file".to_string(),
         name: name.to_string(),
         start_line: 0,
-        end_line,
-        content: lines.join("\n"),
+        end_line: fallback_content.lines().count().saturating_sub(1),
+        content: fallback_content.to_string(),
     }]
 }

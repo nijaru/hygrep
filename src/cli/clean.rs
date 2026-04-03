@@ -21,29 +21,31 @@ pub fn run(path: &Path, recursive: bool) -> Result<()> {
             if let Ok(rel_prefix) = path.strip_prefix(&parent) {
                 let rel_str = rel_prefix.to_string_lossy();
                 if !rel_str.is_empty() && rel_str != "." {
-                    let index = SemanticIndex::new(&parent, None)?;
-                    match index.remove_prefix(&rel_str) {
-                        Ok(stats) => {
-                            if stats.blocks > 0 {
-                                println!(
-                                    "Removed {} blocks ({} files) from parent index",
-                                    stats.blocks, stats.files
-                                );
-                                deleted_count += 1;
-                            } else {
-                                eprintln!("No blocks found for {} in parent index", rel_str);
+                    {
+                        let index = SemanticIndex::new(&parent, None)?;
+                        match index.remove_prefix(&rel_str) {
+                            Ok(stats) => {
+                                if stats.blocks > 0 {
+                                    println!(
+                                        "Removed {} blocks ({} files) from parent index",
+                                        stats.blocks, stats.files
+                                    );
+                                    deleted_count += 1;
+                                } else {
+                                    eprintln!("No blocks found for {} in parent index", rel_str);
+                                }
                             }
-                        }
-                        Err(e) => {
-                            let msg = e.to_string();
-                            if msg.contains("older version") {
-                                eprintln!(
-                                    "Parent index needs rebuild. Run: og build --force {}",
-                                    parent.display()
-                                );
-                                std::process::exit(EXIT_ERROR);
+                            Err(e) => {
+                                let msg = e.to_string();
+                                if msg.contains("older version") {
+                                    eprintln!(
+                                        "Parent index needs rebuild. Run: og build --force {}",
+                                        parent.display()
+                                    );
+                                    std::process::exit(EXIT_ERROR);
+                                }
+                                return Err(e);
                             }
-                            return Err(e);
                         }
                     }
                 } else {

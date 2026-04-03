@@ -1,14 +1,15 @@
-// Benchmarks for omendb hot paths used by omengrep.
+// omengrep - semantic code search
+// Benchmarks for omendb integration.
 //
-// Measures the three operations that dominate omengrep's runtime:
-//   - store_with_text: called once per block during index build
-//   - search_multi_with_text: hybrid BM25 + MaxSim search
+// These focus on the hot path of the vector store:
+//   - index_multi: inserting multi-vectors
+//   - search_multi_with_text: hybrid BM25 + semantic rerank
 //   - query_with_options: pure semantic search
 //
 // Run: cargo bench --bench omendb
 // Compare two builds: run on each, diff the output.
 
-use std::path::PathBuf;
+use std::path::Path;
 
 use divan::{black_box, Bencher};
 use omendb::{MultiVectorConfig, SearchOptions, VectorStore};
@@ -17,29 +18,26 @@ fn main() {
     divan::main();
 }
 
-/// Token dimension matching LateOn-Code-edge INT8 (48d/token).
-const TOKEN_DIM: usize = 48;
+const TOKEN_DIM: usize = 48; // LateOn-Code-edge dimension
 
-/// Tokens per block — representative of a ~30-line function.
-const TOKENS_PER_BLOCK: usize = 32;
-
-/// Number of blocks in the store for search benchmarks.
-const STORE_SIZE: usize = 1000;
-
-fn make_tokens(seed: usize) -> Vec<Vec<f32>> {
-    (0..TOKENS_PER_BLOCK)
-        .map(|i| {
-            let base = ((seed * 31 + i * 7) % 97) as f32 / 97.0;
-            let mut v = vec![0.0f32; TOKEN_DIM];
-            for (j, val) in v.iter_mut().enumerate() {
-                *val = (base + j as f32 * 0.01).sin();
+fn make_tokens(count: usize) -> Vec<Vec<f32>> {
+    (0..count)
+        .map(|_| {
+            let mut v = vec![0.0; TOKEN_DIM];
+            for x in &mut v {
+                *x = rand::random::<f32>();
+            }
+            // L2 normalize
+            let norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+            for x in &mut v {
+                *x /= norm;
             }
             v
         })
         .collect()
 }
 
-fn make_store(dir: &PathBuf) -> VectorStore {
+fn make_store(dir: &Path) -> VectorStore {
     let path = dir.join("bench").to_string_lossy().into_owned();
     let mut store = VectorStore::multi_vector_with(TOKEN_DIM, MultiVectorConfig::compact())
         .unwrap()
@@ -47,51 +45,65 @@ fn make_store(dir: &PathBuf) -> VectorStore {
         .unwrap();
     store.enable_text_search().unwrap();
 
-    for i in 0..STORE_SIZE {
-        let tokens = make_tokens(i);
-        let text = format!("fn benchmark_function_{i} token_{i} impl struct");
-        let meta = serde_json::json!({
-            "file": format!("src/module_{}.rs", i % 20),
-            "type": "function",
-            "name": format!("benchmark_function_{i}"),
-            "start_line": i * 10,
-            "end_line": i * 10 + 9,
-        });
-        store
-            .store_with_text(&format!("block-{i}"), tokens, &text, meta)
-            .unwrap();
+    // Fill with some data (1000 "files", 10 blocks each)
+    for i in 0..1000 {
+        let content = format!(
+            "fn function_{}() {{ let x = {}; println!(\"hello\"); }}",
+            i,
+            i * 42
+        );
+        for j in 0..10 {
+            let tokens = make_tokens(16); // 16 tokens per block
+            let token_refs: Vec<&[f32]> = tokens.iter().map(|v| v.as_slice()).collect();
+            let metadata = serde_json::json!({
+                "file": format!("file_{}.rs", i),
+                "type": "function",
+                "name": format!("function_{}", i),
+                "start_line": 0,
+                "end_line": 2,
+                "content": content,
+            });
+            store
+                .store_with_text(&format!("{}_{}", i, j), token_refs, &content, metadata)
+                .unwrap();
+        }
     }
-    store.flush().unwrap();
     store
 }
 
-// --- Write path ---
+// --- Benchmark insertion path ---
 
 #[divan::bench]
-fn store_write(bencher: Bencher) {
+fn index_multi(bencher: Bencher) {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir
-        .path()
-        .join("write_bench")
-        .to_string_lossy()
-        .into_owned();
+    let path = dir.path().join("bench_insert").to_string_lossy().into_owned();
     let mut store = VectorStore::multi_vector_with(TOKEN_DIM, MultiVectorConfig::compact())
         .unwrap()
         .persist(&path)
         .unwrap();
     store.enable_text_search().unwrap();
 
-    let mut counter = 0usize;
+    let tokens = make_tokens(16);
+    let token_refs: Vec<&[f32]> = tokens.iter().map(|v| v.as_slice()).collect();
+    let content = "fn test() { println!(\"benchmark\"); }";
+    let metadata = serde_json::json!({
+        "file": "test.rs",
+        "type": "function",
+        "name": "test",
+        "start_line": 0,
+        "end_line": 2,
+        "content": content,
+    });
+
     bencher.bench_local(|| {
-        let tokens = make_tokens(black_box(counter));
-        let token_refs: Vec<&[f32]> = tokens.iter().map(|v| v.as_slice()).collect();
-        let _ = token_refs; // suppress unused — we pass tokens directly
-        let text = format!("fn function_{counter}");
-        let meta = serde_json::json!({"file": "src/lib.rs", "type": "function"});
         store
-            .store_with_text(&format!("block-{counter}"), tokens, &text, meta)
+            .store_with_text(
+                black_box("test_id"),
+                black_box(token_refs.clone()),
+                black_box(content),
+                black_box(metadata.clone()),
+            )
             .unwrap();
-        counter += 1;
     });
 }
 
@@ -100,7 +112,7 @@ fn store_write(bencher: Bencher) {
 #[divan::bench]
 fn search_hybrid(bencher: Bencher) {
     let dir = tempfile::tempdir().unwrap();
-    let store = make_store(&dir.path().to_path_buf());
+    let store = make_store(dir.path());
 
     let query_tokens = make_tokens(42);
     let token_refs: Vec<&[f32]> = query_tokens.iter().map(|v| v.as_slice()).collect();
@@ -121,7 +133,7 @@ fn search_hybrid(bencher: Bencher) {
 #[divan::bench]
 fn search_semantic(bencher: Bencher) {
     let dir = tempfile::tempdir().unwrap();
-    let store = make_store(&dir.path().to_path_buf());
+    let store = make_store(dir.path());
 
     let query_tokens = make_tokens(42);
     let token_refs: Vec<&[f32]> = query_tokens.iter().map(|v| v.as_slice()).collect();
