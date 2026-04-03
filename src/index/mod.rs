@@ -522,7 +522,7 @@ impl SemanticIndex {
         // Delete vectors for deleted files (reuse already-loaded manifest)
         let mut deleted_count = 0;
         {
-            let mut store = self.open_store()?;
+            let store = self.open_store()?;
 
             for rel_path in &deleted {
                 if let Some(entry) = manifest.files.remove(rel_path) {
@@ -576,7 +576,7 @@ impl SemanticIndex {
         // so the store lock is released before self.index() re-acquires it
         let mut deleted_count = 0;
         {
-            let mut store = self.open_store()?;
+            let store = self.open_store()?;
 
             for rel_path in &deleted {
                 if let Some(entry) = manifest.files.remove(rel_path) {
@@ -619,7 +619,7 @@ impl SemanticIndex {
             return Ok(IndexStats::default());
         }
 
-        let mut store = self.open_store()?;
+        let store = self.open_store()?;
 
         let mut manifest = Manifest::load(&self.index_dir)?;
         let mut stats = IndexStats::default();
