@@ -77,6 +77,9 @@ impl SemanticIndex {
         files: &HashMap<PathBuf, (String, u64)>,
         on_progress: Option<&dyn Fn(usize, usize, &str)>,
     ) -> Result<IndexStats> {
+        assert!(files.len() <= 10_000_000, "index: max files bound");
+        assert!(self.index_dir.components().count() > 0, "index: valid index_dir");
+
         std::fs::create_dir_all(&self.index_dir)?;
         let mut manifest = Manifest::load(&self.index_dir)?;
         manifest.model = embedder::MODEL.version.to_string();
@@ -257,12 +260,16 @@ impl SemanticIndex {
         };
         let search_k = k.saturating_mul(overfetch);
 
-        // Run both BM25+MaxSim and pure semantic search, merge by ID
+        // Run both BM25+MaxSim and pure semantic search concurrently, merge by ID
         let bm25_query = crate::synonyms::expand_query(&split_identifiers(query));
-        let bm25_results =
-            store.search_multi_with_text(&bm25_query, &token_refs, search_k, None)?;
-        let semantic_results =
-            store.query_with_options(&token_refs, search_k, &SearchOptions::default())?;
+        
+        let (bm25_result, semantic_result) = rayon::join(
+            || store.search_multi_with_text(&bm25_query, &token_refs, search_k, Some(search_k), false),
+            || store.query_with_options(&token_refs, search_k, &SearchOptions::default()),
+        );
+        
+        let bm25_results = bm25_result?;
+        let semantic_results = semantic_result?;
 
         // Merge: keep higher score per ID
         let mut best: HashMap<String, omendb::SearchResult> =
