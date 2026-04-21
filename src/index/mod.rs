@@ -125,74 +125,37 @@ impl SemanticIndex {
 
         store.flush()?;
 
-        // Extract blocks in parallel, reusing Extractor per thread
-        let all_blocks: Vec<(Vec<Block>, String, String, u64)> = to_process
-            .into_par_iter()
-            .map_init(
-                Extractor::new,
-                |extractor, (_path, content, rel_path, file_hash, mtime)| {
-                    let blocks = extractor.extract(&rel_path, content).unwrap_or_default();
-                    (blocks, rel_path, file_hash, mtime)
-                },
-            )
-            .collect();
+        // Extract blocks in parallel, streaming via mpsc to the embedder thread
+        let (tx, rx) = std::sync::mpsc::sync_channel::<(Vec<Block>, String, String, u64)>(1024);
+        
+        let to_process_len = to_process.len();
 
-        // Flatten blocks, compute embedding text once, track file stats.
-        // Store (file_idx, block_idx) to reference blocks without cloning.
+        // Consumer thread (main thread) handles batching and embedding
         struct PreparedBlock {
-            file_idx: usize,
-            block_idx: usize,
             text: String,
+            block: Block,
+            rel_path: String,
+            file_hash: String,
+            mtime: u64,
         }
 
-        let mut prepared: Vec<PreparedBlock> = Vec::new();
-        for (file_idx, (blocks, _rel_path, _file_hash, _mtime)) in all_blocks.iter().enumerate() {
-            if blocks.is_empty() {
-                stats.errors += 1;
-            } else {
-                stats.files += 1;
-            }
-            for (block_idx, block) in blocks.iter().enumerate() {
-                let text = block.embedding_text();
-                prepared.push(PreparedBlock {
-                    file_idx,
-                    block_idx,
-                    text,
-                });
-            }
-        }
-
-        if prepared.is_empty() {
-            manifest.save(&self.index_dir)?;
-            return Ok(stats);
-        }
-
-        // Sort by text length for better batching (avoids recomputing embedding_text)
-        prepared.sort_by_key(|p| p.text.len());
-
-        let total = prepared.len();
+        let mut batch_buffer: Vec<PreparedBlock> = Vec::new();
         let batch_size = embedder::MODEL.batch_size;
+        let mut processed_files = 0;
 
-        // Embed in batches
-        for start in (0..total).step_by(batch_size) {
-            let end = (start + batch_size).min(total);
-            if let Some(progress) = on_progress {
-                progress(
-                    start,
-                    total,
-                    &format!("Embedding {}-{} of {total}", start, end),
-                );
+        let mut embed_batch = |batch: &mut Vec<PreparedBlock>, store: &mut omendb::VectorStore, stats: &mut IndexStats| -> Result<()> {
+            if batch.is_empty() {
+                return Ok(());
             }
 
-            let batch_refs: Vec<&str> = prepared[start..end]
-                .iter()
-                .map(|p| p.text.as_str())
-                .collect();
-            let token_embeddings = self.embedder.embed_documents(&batch_refs)?;
+            // Sort by text length for better padding efficiency in ONNX
+            batch.sort_by_key(|p| p.text.len());
+
+            let texts: Vec<&str> = batch.iter().map(|p| p.text.as_str()).collect();
+            let token_embeddings = self.embedder.embed_documents(&texts)?;
 
             for (idx, token_emb) in token_embeddings.embeddings.iter().enumerate() {
-                let p = &prepared[start + idx];
-                let block = &all_blocks[p.file_idx].0[p.block_idx];
+                let p = &batch[idx];
 
                 let tokens: Vec<Vec<f32>> = token_emb
                     .rows()
@@ -202,42 +165,96 @@ impl SemanticIndex {
                     .collect();
 
                 let metadata = serde_json::json!({
-                    "file": block.file,
-                    "type": block.block_type,
-                    "name": block.name,
-                    "start_line": block.start_line,
-                    "end_line": block.end_line,
-                    "content": block.content,
+                    "file": p.block.file,
+                    "type": p.block.block_type,
+                    "name": p.block.name,
+                    "start_line": p.block.start_line,
+                    "end_line": p.block.end_line,
+                    "content": p.block.content,
                 });
 
                 let bm25_text = split_identifiers(&p.text);
-                store.store_with_text(&block.id, tokens, &bm25_text, metadata)?;
-
+                store.store_with_text(&p.block.id, tokens, &bm25_text, metadata)?;
                 stats.blocks += 1;
             }
-        }
 
-        store.flush()?;
+            batch.clear();
+            Ok(())
+        };
 
-        // Update manifest (mtime was captured before content read)
-        for (blocks, rel_path, file_hash, mtime) in &all_blocks {
-            if !blocks.is_empty() {
+        std::thread::scope(|s| {
+            // Spawn producer thread for parallel extraction
+            s.spawn(move || {
+                to_process
+                    .into_par_iter()
+                    .for_each_init(
+                        Extractor::new,
+                        |extractor, (_path, content, rel_path, file_hash, mtime)| {
+                            let blocks = extractor.extract(&rel_path, content).unwrap_or_default();
+                            let _ = tx.send((blocks, rel_path, file_hash, mtime));
+                        },
+                    );
+            });
+
+            for (blocks, rel_path, file_hash, mtime) in rx {
+                processed_files += 1;
+                
+                if let Some(progress) = on_progress {
+                    progress(processed_files, to_process_len, &format!("Processing {}/{}", processed_files, to_process_len));
+                }
+
+                if blocks.is_empty() {
+                    stats.errors += 1;
+                    // Even if empty, record it so we don't re-process
+                    manifest.files.insert(
+                        rel_path.clone(),
+                        FileEntry {
+                            hash: file_hash.clone(),
+                            blocks: Vec::new(),
+                            mtime,
+                        },
+                    );
+                    continue;
+                }
+
+                stats.files += 1;
+
                 manifest.files.insert(
                     rel_path.clone(),
                     FileEntry {
                         hash: file_hash.clone(),
                         blocks: blocks.iter().map(|b| b.id.clone()).collect(),
-                        mtime: *mtime,
+                        mtime,
                     },
                 );
+
+                for block in blocks {
+                    let text = block.embedding_text();
+                    batch_buffer.push(PreparedBlock {
+                        text,
+                        block,
+                        rel_path: rel_path.clone(),
+                        file_hash: file_hash.clone(),
+                        mtime,
+                    });
+
+                    if batch_buffer.len() >= batch_size {
+                        embed_batch(&mut batch_buffer, &mut store, &mut stats)?;
+                    }
+                }
             }
-        }
 
-        manifest.save(&self.index_dir)?;
+            // Flush remaining items
+            embed_batch(&mut batch_buffer, &mut store, &mut stats)?;
+            store.flush()?;
+            manifest.save(&self.index_dir)?;
 
-        if let Some(progress) = on_progress {
-            progress(total, total, "Done");
-        }
+            if let Some(progress) = on_progress {
+                progress(to_process_len, to_process_len, "Done");
+            }
+
+            Ok::<(), anyhow::Error>(())
+        })?;
 
         Ok(stats)
     }

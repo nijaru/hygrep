@@ -30,8 +30,10 @@ fn build_fixture_index() -> TempDir {
     // Copy fixture files to temp dir
     for entry in std::fs::read_dir(&fixtures).unwrap() {
         let entry = entry.unwrap();
-        let dest = tmp.path().join(entry.file_name());
-        std::fs::copy(entry.path(), &dest).unwrap();
+        if entry.file_type().unwrap().is_file() {
+            let dest = tmp.path().join(entry.file_name());
+            std::fs::copy(entry.path(), &dest).unwrap();
+        }
     }
 
     // Build index
