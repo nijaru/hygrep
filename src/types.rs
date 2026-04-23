@@ -17,6 +17,8 @@ pub struct Block {
     pub end_line: usize,
     /// Source content of the block.
     pub content: String,
+    /// Skeleton (signature) of the block.
+    pub skeleton: String,
 }
 
 impl Block {

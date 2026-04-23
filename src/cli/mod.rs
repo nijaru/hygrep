@@ -118,6 +118,9 @@ enum Command {
         /// JSON output.
         #[arg(short = 'j', long = "json")]
         json: bool,
+        /// Output full function/class signatures without bodies.
+        #[arg(long = "skeleton")]
+        skeleton: bool,
     },
     /// Show embedding model status.
     Model {
@@ -145,7 +148,7 @@ pub fn run() -> anyhow::Result<()> {
         Some(Command::Status { path }) => status::run(&path),
         Some(Command::Clean { path, recursive }) => clean::run(&path, recursive),
         Some(Command::List { path }) => list::run(&path),
-        Some(Command::Outline { path, json }) => outline::run(&path, json),
+        Some(Command::Outline { path, json, skeleton }) => outline::run(&path, json, skeleton),
         Some(Command::Model { action }) => match action {
             Some(ModelAction::Install) => model::install(),
             None => model::status(),

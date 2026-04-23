@@ -171,6 +171,7 @@ impl SemanticIndex {
                     "start_line": p.block.start_line,
                     "end_line": p.block.end_line,
                     "content": p.block.content,
+                    "skeleton": p.block.skeleton,
                 });
 
                 let bm25_text = split_identifiers(&p.text);

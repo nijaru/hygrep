@@ -295,7 +295,8 @@ fn extract_markdown_blocks(file_path: &str, content: &str) -> Vec<Block> {
                 name: lang.to_string(),
                 start_line: section.start_line,
                 end_line: section.end_line,
-                content: content_with_context,
+                content: content_with_context.clone(),
+                skeleton: content_with_context,
             });
             continue;
         }
@@ -326,7 +327,8 @@ fn extract_markdown_blocks(file_path: &str, content: &str) -> Vec<Block> {
                 name,
                 start_line: section.start_line,
                 end_line: section.end_line,
-                content: content_with_context,
+                content: content_with_context.clone(),
+                skeleton: content_with_context,
             });
         }
     }
@@ -359,6 +361,7 @@ fn extract_plain_text_blocks(file_path: &str, content: &str) -> Vec<Block> {
             start_line: line_num,
             end_line: line_num + chunk_lines,
             content: chunk.clone(),
+            skeleton: chunk.clone(),
         });
 
         line_num += chunk_lines;

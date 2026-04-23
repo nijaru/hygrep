@@ -93,6 +93,8 @@ impl Extractor {
                 let start_line = node.start_position().row;
                 let end_line = node.end_position().row;
 
+                let skeleton = extract_skeleton(&node, content_bytes).unwrap_or_else(|| node_text.clone());
+
                 blocks.push(Block {
                     id: Block::make_id(rel_path, start_line, &name),
                     file: rel_path.to_string(),
@@ -101,6 +103,7 @@ impl Extractor {
                     start_line,
                     end_line,
                     content: node_text,
+                    skeleton,
                 });
             }
         }
@@ -222,6 +225,59 @@ fn extract_name(node: &tree_sitter::Node, source: &[u8]) -> String {
     "anonymous".to_string()
 }
 
+/// Extract a skeleton representation of a block by omitting its body node.
+fn extract_skeleton(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
+    let body_types = [
+        "block",
+        "statement_block",
+        "class_body",
+        "declaration_list",
+        "compound_statement",
+        "field_declaration_list",
+        "interface_body",
+        "body_statement",
+        "do_block",
+        "enum_body_item",
+        "struct_body_item",
+    ];
+
+    let mut body_node = None;
+    for i in 0..node.child_count() {
+        if let Some(child) = node.child(i) {
+            let kind = child.kind();
+            if body_types.contains(&kind) {
+                body_node = Some(child);
+                break;
+            }
+        }
+    }
+
+    let Some(body) = body_node else {
+        return None;
+    };
+
+    let start_byte = node.start_byte();
+    let body_start = body.start_byte();
+    let body_end = body.end_byte();
+    let end_byte = node.end_byte();
+
+    let mut skeleton = Vec::new();
+    skeleton.extend_from_slice(&source[start_byte..body_start]);
+    
+    let body_text = body.utf8_text(source).unwrap_or("");
+    if body_text.starts_with('{') && body_text.ends_with('}') {
+        skeleton.extend_from_slice(b"{ ... }");
+    } else if body_text.starts_with(':') {
+        skeleton.extend_from_slice(b": ...");
+    } else {
+        skeleton.extend_from_slice(b"...");
+    }
+
+    skeleton.extend_from_slice(&source[body_end..end_byte]);
+
+    String::from_utf8(skeleton).ok()
+}
+
 /// Fallback: return first 50 lines as a single block.
 fn fallback_head(file_path: &str, content: &str) -> Vec<Block> {
     let end_byte = content
@@ -244,5 +300,6 @@ fn fallback_head(file_path: &str, content: &str) -> Vec<Block> {
         start_line: 0,
         end_line: fallback_content.lines().count().saturating_sub(1),
         content: fallback_content.to_string(),
+        skeleton: fallback_content.to_string(),
     }]
 }
