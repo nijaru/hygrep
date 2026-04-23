@@ -133,15 +133,34 @@ pub fn build_index(path: &Path, quiet: bool) -> Result<()> {
     let index = SemanticIndex::new(path, None)?;
     let t0 = Instant::now();
 
+    let pb = if quiet {
+        None
+    } else {
+        let pb = indicatif::ProgressBar::new_spinner();
+        pb.set_style(
+            indicatif::ProgressStyle::default_spinner()
+                .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
+                .template("{spinner:.green} {msg}")
+                .unwrap(),
+        );
+        pb.enable_steady_tick(std::time::Duration::from_millis(100));
+        Some(pb)
+    };
+
     let progress_fn = if quiet {
         None
     } else {
         Some(
-            (|current: usize, total: usize, _msg: &str| {
-                eprint!("\rIndexing {current}/{total}...");
+            (|_current: usize, _total: usize, _msg: &str| {
+                // We use a spinner so we just update the message occasionally
+                // The exact total might be unknown until extraction completes
             }) as fn(usize, usize, &str),
         )
     };
+
+    if let Some(ref p) = pb {
+        p.set_message("Extracting and embedding blocks...");
+    }
 
     let stats = index.index(
         &files,
@@ -149,6 +168,11 @@ pub fn build_index(path: &Path, quiet: bool) -> Result<()> {
             .as_ref()
             .map(|f| f as &dyn Fn(usize, usize, &str)),
     )?;
+    
+    if let Some(p) = pb {
+        p.finish_and_clear();
+    }
+    
     let elapsed = t0.elapsed();
 
     if !quiet {

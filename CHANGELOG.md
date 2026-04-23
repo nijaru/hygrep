@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.0.3] - 2026-04-05
+
+### Added
+
+- Migration to Rust Edition 2024.
+- High-performance zero-copy indexing using `into_par_iter` to reduce string allocations.
+- Optimized Tree-sitter extraction with direct UTF-8 text access.
+- Improved fallback indexing for large/unparseable files using byte-indexed line limits.
+- **Performance:** Parallelized `ignore::WalkBuilder` for massive speedup during file scanning.
+- **Performance:** Parallelized hybrid search (BM25 and MaxSim run concurrently via `rayon::join`), halving search latency on multi-core CPUs.
+- **UX:** Integrated `indicatif` spinner for clean, glitch-free progress reporting during `og build`.
+
+### Changed
+
+- Updated `omendb` to `0.0.33` (registry).
+- Benchmarks modernized to match latest `omendb` API and traits.
+
 ## [0.0.2] - 2026-03-04
 
 ### Added

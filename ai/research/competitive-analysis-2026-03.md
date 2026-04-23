@@ -1,3 +1,9 @@
+---
+date: 2026-04-05
+summary: Competitive analysis of local semantic code search CLIs
+status: active
+---
+
 # Competitive Analysis: Local Semantic Code Search CLIs
 
 **Researched:** 2026-03-03
@@ -497,3 +503,31 @@ ColGrep's end-to-end QA evaluation is currently the best published benchmark but
 - Augment quantized search blog: https://augmentcode.com/blog/repo-scale-100M-line-codebase-quantized-vector-search
 - MTEB Code v1: https://huggingface.co/blog/lightonai/colgrep-lateon-code
 - LateOn-Code HF model card: https://huggingface.co/lightonai/LateOn-Code
+
+## 11. Sourcegraph Zoekt / Cody (Local Context)
+
+**Overview:** 
+Sourcegraph Zoekt is a highly-optimized, trigram-based inverted index (lexical search). Cody uses Zoekt for fast deterministic recall, combining it with single-vector embeddings and LLM reranking for its "Context Fetch" phase. 
+
+**Architecture:**
+- **Core Engine:** Trigram-based Inverted Index (Zoekt) + Single-vector Embeddings.
+- **Memory Footprint:** Extremely lean. Requires only ~310KB of RAM per repository for metadata. Can serve a 2.6B line corpus from ~22GB RAM.
+- **Latency:** Sub-second (tens of ms) for exact/regex queries across billions of lines.
+- **Indexing Speed:** ~14 seconds for 380k+ files on modern hardware.
+
+**Comparison vs omengrep (ColBERT / Late Interaction):**
+- **Speed & Footprint:** Zoekt is vastly faster to index and requires far less disk/RAM than ColBERT-style multi-vector engines.
+- **Semantic Nuance:** ColBERT (omengrep) provides significantly deeper semantic understanding (e.g., matching "thread-safe singleton" across different terminology) compared to Zoekt/Cody’s keyword + single-vector hybrid.
+- **2026 Context:** Tools like Cody are increasingly using Zoekt as a "first-pass" recall mechanism, followed by a precise semantic reranker. omengrep achieves a similar hybrid pipeline via BM25 + MuVERA.
+
+## 12. SOTA Research Validation: HF Papers (Mid-2026)
+
+**Hugging Face Papers Analysis:**
+Recent literature from late 2025/early 2026 strongly validates `omengrep`'s core architectural choices.
+
+*   **cAST: Enhancing Code Retrieval-Augmented Generation with Structural Chunking (arXiv:2506.15655)**
+    *   **Findings:** The paper proves that line-based chunking heuristics break semantic structures. They propose "Chunking via Abstract Syntax Trees" (cAST), which recursively breaks large AST nodes into smaller chunks and merges sibling nodes while respecting limits.
+    *   **Validation:** This paper empirically validates `omengrep`'s `extractor` module. By using `tree-sitter` to parse code into semantic blocks (functions, classes, structs) rather than naive line-splitting, `omengrep` natively implements the cAST approach. The paper demonstrates this boosts Recall@5 by 4.3 points on RepoEval retrieval, confirming our strategy.
+*   **CoIR: A Comprehensive Benchmark for Code Information Retrieval Models (arXiv:2407.02883)**
+    *   **Findings:** Establishes the new standard benchmark (CoIR) for code retrieval, sharing schemas with MTEB and BEIR.
+    *   **Actionable:** `omengrep`'s internal benchmarks should be migrated or mapped to the CoIR dataset schema for formal evaluation against models like `LateOn-Code-edge`.

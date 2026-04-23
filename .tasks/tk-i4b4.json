@@ -15,10 +15,14 @@
     {
       "ts": "2026-03-04T08:49:03.891Z",
       "msg": "Deprioritized. Features/fixes take priority over benchmarks for now. Can add after v0.0.2 release. No blocker."
+    },
+    {
+      "ts": "2026-03-13T09:37:13.437Z",
+      "msg": "Separate note: cargo update changed only Cargo.lock, including ort rc.11 -> rc.12 and a broad transitive refresh. Validating with cargo test before considering cargo upgrade."
     }
   ],
   "created_at": "2026-03-04T08:01:55.945Z",
-  "updated_at": "2026-03-04T08:49:03.891Z",
+  "updated_at": "2026-03-13T09:37:13.437Z",
   "completed_at": null,
   "external": {}
 }

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use anyhow::Result;
-use ignore::WalkBuilder;
+use ignore::{WalkBuilder, WalkState};
 
 /// Maximum file size to index (1MB).
 const MAX_FILE_SIZE: u64 = 1_000_000;
@@ -21,6 +21,10 @@ const BINARY_EXTENSIONS: &[&str] = &[
     ".exe",
     ".a",
     ".lib",
+    ".out",
+    ".app",
+    ".ipa",
+    ".apk",
     // Archives
     ".zip",
     ".tar",
@@ -32,6 +36,8 @@ const BINARY_EXTENSIONS: &[&str] = &[
     ".jar",
     ".war",
     ".whl",
+    ".dmg",
+    ".iso",
     // Documents/media
     ".pdf",
     ".doc",
@@ -40,6 +46,7 @@ const BINARY_EXTENSIONS: &[&str] = &[
     ".xlsx",
     ".ppt",
     ".pptx",
+    ".epub",
     // Images
     ".png",
     ".jpg",
@@ -50,6 +57,9 @@ const BINARY_EXTENSIONS: &[&str] = &[
     ".webp",
     ".bmp",
     ".tiff",
+    ".raw",
+    ".psd",
+    ".ai",
     // Audio/video
     ".mp3",
     ".mp4",
@@ -57,7 +67,10 @@ const BINARY_EXTENSIONS: &[&str] = &[
     ".avi",
     ".mov",
     ".mkv",
-    // Data files
+    ".flv",
+    ".wmv",
+    ".m4a",
+    // Data/Database files
     ".db",
     ".sqlite",
     ".sqlite3",
@@ -68,8 +81,58 @@ const BINARY_EXTENSIONS: &[&str] = &[
     ".pt",
     ".pth",
     ".safetensors",
+    ".model",
+    ".bin",
+    ".weights",
+    ".h5",
+    ".tflite",
+    ".parquet",
+    ".avro",
+    ".orc",
     // Lock files
     ".lock",
+];
+
+/// Patterns and extensions for sensitive files (secrets, credentials, etc.)
+const SENSITIVE_PATTERNS: &[&str] = &[
+    // Credentials and Secrets
+    ".env",
+    ".env.local",
+    ".env.development",
+    ".env.test",
+    ".env.production",
+    ".password",
+    ".secret",
+    ".token",
+    ".key",
+    // Cloud/Platform Credentials
+    "credentials",
+    "config", // Often in .aws/ or .google/
+    "service-account.json",
+    "client_secret.json",
+    // SSH Keys
+    "id_rsa",
+    "id_dsa",
+    "id_ecdsa",
+    "id_ed25519",
+    "authorized_keys",
+    "known_hosts",
+    // Certificates
+    ".pem",
+    ".crt",
+    ".cer",
+    ".pfx",
+    ".p12",
+    ".jks",
+    ".keystore",
+    // Infrastructure/CI State
+    ".tfstate",
+    ".tfstate.backup",
+    "terraform.tfstate",
+    // Database Journals/Dumps
+    ".db-journal",
+    ".sql.gz",
+    ".sql.bz2",
 ];
 
 /// Metadata for a scanned file: (file_size, mtime_secs).
@@ -77,17 +140,38 @@ pub type FileMetadata = (u64, u64);
 
 /// Check if a file path should be skipped during scanning.
 fn should_skip(path: &Path) -> bool {
-    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-        if name.starts_with('.') || name.ends_with("-lock.json") {
+    let name = match path.file_name().and_then(|n| n.to_str()) {
+        Some(n) => n,
+        None => return true,
+    };
+
+    // Hidden files and specific exclusion patterns
+    if name.starts_with('.') || name.ends_with("-lock.json") {
+        // Double check for common env patterns that might not be hidden on all OSes
+        if name.starts_with(".env") {
+            return true;
+        }
+        return true;
+    }
+
+    // Sensitive patterns (case-insensitive)
+    let name_lower = name.to_lowercase();
+    for pattern in SENSITIVE_PATTERNS {
+        if name_lower == pattern.to_lowercase()
+            || name_lower.ends_with(&pattern.to_lowercase())
+        {
             return true;
         }
     }
+
+    // Binary extensions (case-insensitive)
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
         let ext_lower = format!(".{}", ext.to_lowercase());
         if BINARY_EXTENSIONS.contains(&ext_lower.as_str()) {
             return true;
         }
     }
+
     false
 }
 
@@ -151,43 +235,62 @@ pub fn file_mtime(path: &Path) -> u64 {
 /// Scan directory tree for text files, returning path -> (content, mtime).
 /// mtime is captured before reading content so it's never newer than what was read.
 pub fn scan(root: &Path) -> Result<HashMap<PathBuf, (String, u64)>> {
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    let walker = WalkBuilder::new(root)
+        .hidden(true)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .follow_links(false)
+        .max_filesize(Some(MAX_FILE_SIZE))
+        .build_parallel();
+
+    walker.run(|| {
+        let tx = tx.clone();
+        Box::new(move |result| {
+            let entry = match result {
+                Ok(e) => e,
+                Err(_) => return WalkState::Continue,
+            };
+
+            if entry.file_type().is_none_or(|ft| !ft.is_file()) {
+                return WalkState::Continue;
+            }
+
+            let path = entry.path();
+            if should_skip(path) {
+                return WalkState::Continue;
+            }
+
+            // Stat before read so mtime is never newer than the content we index
+            let mtime = file_mtime(path);
+
+            let raw = match std::fs::read(path) {
+                Ok(data) => data,
+                Err(_) => return WalkState::Continue,
+            };
+
+            // Binary detection: null byte in first 8192 bytes
+            let check_len = raw.len().min(8192);
+            if raw[..check_len].contains(&0) {
+                return WalkState::Continue;
+            }
+
+            let content = match String::from_utf8(raw) {
+                Ok(s) => s,
+                Err(_) => return WalkState::Continue,
+            };
+
+            let _ = tx.send((path.to_path_buf(), (content, mtime)));
+            WalkState::Continue
+        })
+    });
+
+    drop(tx);
     let mut results = HashMap::new();
-
-    for entry in build_walker(root) {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-
-        if entry.file_type().is_none_or(|ft| !ft.is_file()) {
-            continue;
-        }
-
-        let path = entry.path();
-        if should_skip(path) {
-            continue;
-        }
-
-        // Stat before read so mtime is never newer than the content we index
-        let mtime = file_mtime(path);
-
-        let raw = match std::fs::read(path) {
-            Ok(data) => data,
-            Err(_) => continue,
-        };
-
-        // Binary detection: null byte in first 8192 bytes
-        let check_len = raw.len().min(8192);
-        if raw[..check_len].contains(&0) {
-            continue;
-        }
-
-        let content = match String::from_utf8(raw) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
-
-        results.insert(path.to_path_buf(), (content, mtime));
+    for (path, data) in rx {
+        results.insert(path, data);
     }
 
     Ok(results)
