@@ -1,0 +1,203 @@
+{
+  "version": 10,
+  "model": "lateon-code-edge-v1",
+  "files": {
+    "cli.py": {
+      "hash": "14d5faba589ac2a5",
+      "blocks": [
+        "cli.py:3:main"
+      ],
+      "mtime": 1776972674
+    },
+    "workers.rs": {
+      "hash": "36b2d5763d88fb9f",
+      "blocks": [
+        "workers.rs:4:process_background_jobs"
+      ],
+      "mtime": 1776972674
+    },
+    "database.rs": {
+      "hash": "307e00291d0fb5f4",
+      "blocks": [
+        "database.rs:3:init_db_pool"
+      ],
+      "mtime": 1776972674
+    },
+    "utils.js": {
+      "hash": "1891f487410cb5a2",
+      "blocks": [
+        "utils.js:3:capitalize",
+        "utils.js:8:snakeToCamel",
+        "utils.js:9:group",
+        "utils.js:14:chunkArray"
+      ],
+      "mtime": 1776972674
+    },
+    "payments.ts": {
+      "hash": "0b33e4c5cad7dca5",
+      "blocks": [
+        "payments.ts:6:createPaymentIntent"
+      ],
+      "mtime": 1776972674
+    },
+    "models.py": {
+      "hash": "c8593f1d324d92ac",
+      "blocks": [
+        "models.py:5:User",
+        "models.py:12:Order"
+      ],
+      "mtime": 1776972674
+    },
+    "config.go": {
+      "hash": "d603a865ba5bed68",
+      "blocks": [
+        "config.go:7:Config",
+        "config.go:12:LoadConfig"
+      ],
+      "mtime": 1776972674
+    },
+    "metrics.rs": {
+      "hash": "03cb5864fc49f005",
+      "blocks": [
+        "metrics.rs:10:track_request"
+      ],
+      "mtime": 1776972674
+    },
+    "logger.go": {
+      "hash": "ab3f1f4cd04a8279",
+      "blocks": [
+        "logger.go:8:InitLogger"
+      ],
+      "mtime": 1776972674
+    },
+    "errors.rs": {
+      "hash": "dfc9a84afdce7eca",
+      "blocks": [
+        "errors.rs:7:AppError",
+        "errors.rs:21:DatabaseError",
+        "errors.rs:28:NetworkError",
+        "errors.rs:35:ValidationError",
+        "errors.rs:42:fmt",
+        "errors.rs:54:source",
+        "errors.rs:63:from",
+        "errors.rs:69:from",
+        "errors.rs:82:ResultExt",
+        "errors.rs:88:context",
+        "errors.rs:95:with_context",
+        "errors.rs:104:not_found",
+        "errors.rs:112:validation_error",
+        "errors.rs:125:test_not_found_display",
+        "errors.rs:131:test_validation_error_display"
+      ],
+      "mtime": 1776972674
+    },
+    "main.rs": {
+      "hash": "12c26721a8372ac1",
+      "blocks": [
+        "main.rs:5:main"
+      ],
+      "mtime": 1776972674
+    },
+    "router.go": {
+      "hash": "828846b39b9be7b9",
+      "blocks": [
+        "router.go:7:SetupRouter"
+      ],
+      "mtime": 1776972674
+    },
+    "email.ts": {
+      "hash": "fe476f1901792392",
+      "blocks": [
+        "email.ts:4:sendWelcomeEmail"
+      ],
+      "mtime": 1776972674
+    },
+    "auth.py": {
+      "hash": "c5e5871f231ffe58",
+      "blocks": [
+        "auth.py:7:AuthenticationError",
+        "auth.py:11:SessionExpiredError",
+        "auth.py:15:hash_password",
+        "auth.py:23:verify_password",
+        "auth.py:29:create_session_token",
+        "auth.py:40:validate_session",
+        "auth.py:51:__init__",
+        "auth.py:55:register_user",
+        "auth.py:71:login",
+        "auth.py:85:logout",
+        "auth.py:92:get_current_user"
+      ],
+      "mtime": 1776972674
+    },
+    "security.go": {
+      "hash": "3190726f03f1d282",
+      "blocks": [
+        "security.go:6:HashPassword",
+        "security.go:11:CheckPasswordHash"
+      ],
+      "mtime": 1776972674
+    },
+    "queue.py": {
+      "hash": "9e2acfad981d7b67",
+      "blocks": [
+        "queue.py:5:send_async_email",
+        "queue.py:6:send_async_email"
+      ],
+      "mtime": 1776972674
+    },
+    "server.go": {
+      "hash": "c0d918b24d803e01",
+      "blocks": [
+        "server.go:16:Config",
+        "server.go:24:Server",
+        "server.go:32:NewServer",
+        "server.go:41:setupRoutes",
+        "server.go:47:healthHandler",
+        "server.go:56:statusHandler",
+        "server.go:70:echoHandler",
+        "server.go:85:Start",
+        "server.go:98:Shutdown",
+        "server.go:103:loggingMiddleware",
+        "server.go:113:main",
+        "server.go:144:getEnv"
+      ],
+      "mtime": 1776972674
+    },
+    "cache.py": {
+      "hash": "6799f55087df97b4",
+      "blocks": [
+        "cache.py:6:get_cached_item",
+        "cache.py:12:set_cached_item"
+      ],
+      "mtime": 1776972674
+    },
+    "api_handlers.ts": {
+      "hash": "5706334db8e0ed3a",
+      "blocks": [
+        "api_handlers.ts:5:User",
+        "api_handlers.ts:12:Product",
+        "api_handlers.ts:24:authMiddleware",
+        "api_handlers.ts:34:getUserById",
+        "api_handlers.ts:43:createUser",
+        "api_handlers.ts:54:updateUser",
+        "api_handlers.ts:65:deleteUser",
+        "api_handlers.ts:75:listProducts",
+        "api_handlers.ts:80:p",
+        "api_handlers.ts:83:p",
+        "api_handlers.ts:86:p",
+        "api_handlers.ts:92:getProductById",
+        "api_handlers.ts:101:createProduct",
+        "api_handlers.ts:112:updateProductStock",
+        "api_handlers.ts:127:errorHandler"
+      ],
+      "mtime": 1776972674
+    },
+    "validation.ts": {
+      "hash": "5833cc21e667d9cc",
+      "blocks": [
+        "validation.ts:0:validation.ts"
+      ],
+      "mtime": 1776972674
+    }
+  }
+}
