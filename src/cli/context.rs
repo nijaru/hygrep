@@ -9,6 +9,10 @@ use crate::index::{VECTORS_DIR, find_index_root, manifest::Manifest};
 use crate::types::EXIT_ERROR;
 
 const DOC_BLOCK_TYPES: &[&str] = &["text", "section"];
+const SYMBOL_REF_SCORE_CAP: usize = 12;
+const SYMBOL_FILE_SCORE_CAP: usize = 8;
+const FILE_REF_SCORE_CAP: usize = 40;
+const FILE_FILE_SCORE_CAP: usize = 20;
 
 #[derive(Clone)]
 struct IndexedBlock {
@@ -187,7 +191,7 @@ fn rank_context(
     }
 
     let token_doc_counts = token_document_counts(blocks);
-    let max_doc_freq = (blocks.len() / 5).max(8);
+    let max_doc_freq = (blocks.len() / 40).clamp(8, 50);
     definitions.retain(|name, _| token_doc_counts.get(name).copied().unwrap_or(0) <= max_doc_freq);
 
     let mut seen_edges: HashSet<(usize, usize)> = HashSet::new();
@@ -217,8 +221,8 @@ fn rank_context(
         let definition_score = definition_weight(block);
         let symbol_score = &symbol_scores[idx];
         let score = definition_score
-            + (symbol_score.inbound_refs as f32 * 2.0)
-            + (symbol_score.inbound_files.len() as f32 * 3.0);
+            + (symbol_score.inbound_refs.min(SYMBOL_REF_SCORE_CAP) as f32 * 2.0)
+            + (symbol_score.inbound_files.len().min(SYMBOL_FILE_SCORE_CAP) as f32 * 3.0);
 
         let file_score = file_scores.entry(block.file.clone()).or_default();
         file_score.definition_score += definition_score;
@@ -250,8 +254,8 @@ fn rank_context(
             score.symbols.truncate(symbols_per_file);
 
             let total_score = score.definition_score
-                + (score.inbound_refs as f32 * 2.0)
-                + (score.inbound_files.len() as f32 * 3.0);
+                + (score.inbound_refs.min(FILE_REF_SCORE_CAP) as f32 * 2.0)
+                + (score.inbound_files.len().min(FILE_FILE_SCORE_CAP) as f32 * 3.0);
 
             RankedFile {
                 file,
@@ -316,15 +320,24 @@ fn is_noisy_name(name: &str) -> bool {
             | "fmt"
             | "from"
             | "get"
+            | "append"
+            | "data"
+            | "item"
+            | "items"
             | "init"
             | "into"
+            | "list"
             | "main"
+            | "method"
             | "new"
+            | "path"
             | "run"
             | "set"
             | "source"
             | "test"
             | "tests"
+            | "value"
+            | "values"
     ) || name.len() < 4
 }
 
@@ -398,5 +411,40 @@ fn print_default(files: &[RankedFile], include_skeleton: bool) {
             }
         }
         println!();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::cli::context::{IndexedBlock, rank_context};
+
+    fn block(file: &str, name: &str, content: &str) -> IndexedBlock {
+        IndexedBlock {
+            file: file.to_string(),
+            name: name.to_string(),
+            block_type: "function".to_string(),
+            start_line: 0,
+            end_line: 0,
+            content: content.to_string(),
+            skeleton: content.to_string(),
+        }
+    }
+
+    #[test]
+    fn context_filters_high_frequency_definition_names() {
+        let mut blocks = vec![block("defs.rs", "sharedThing", "fn sharedThing() {}")];
+        for i in 0..120 {
+            blocks.push(block(
+                &format!("file_{i}.rs"),
+                &format!("caller_{i}"),
+                "fn caller() { sharedThing(); }",
+            ));
+        }
+
+        let ranked = rank_context(&blocks, 1, 1, false);
+        let defs = ranked.iter().find(|file| file.file == "defs.rs").unwrap();
+
+        assert_eq!(defs.inbound_refs, 0);
+        assert_eq!(defs.inbound_files, 0);
     }
 }
