@@ -421,3 +421,54 @@ fn context_scope_excludes_sibling_directory() {
         "scoped context must exclude src/cli_utils; got: {files:?}"
     );
 }
+
+#[test]
+fn highlight_marks_query_terms_in_default_output() {
+    let tmp = build_fixture_index();
+
+    let output = og()
+        .args([
+            "--highlight",
+            "authentication",
+            tmp.path().to_str().unwrap(),
+            "-n",
+            "1",
+        ])
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+    assert!(
+        stdout.contains("\x1b[33m"),
+        "highlight output must contain yellow ANSI styling; got: {stdout}"
+    );
+    assert!(
+        stdout.contains("Authentication") || stdout.contains("authentication"),
+        "highlight output must still include the matched token text; got: {stdout}"
+    );
+}
+
+#[test]
+fn highlight_does_not_change_json_output() {
+    let tmp = build_fixture_index();
+
+    let output = og()
+        .args([
+            "--json",
+            "--highlight",
+            "authentication",
+            tmp.path().to_str().unwrap(),
+            "-n",
+            "1",
+        ])
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert!(parsed.as_array().is_some());
+    assert!(
+        !stdout.contains("\x1b[33m"),
+        "json output must not include ANSI styling; got: {stdout}"
+    );
+}

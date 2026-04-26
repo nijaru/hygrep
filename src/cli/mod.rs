@@ -74,6 +74,10 @@ pub struct Cli {
     /// Filter results by regex (applied to content and name).
     #[arg(short = 'e', long = "regex")]
     regex: Option<String>,
+
+    /// Highlight query-related tokens in terminal previews.
+    #[arg(long = "highlight")]
+    highlight: bool,
 }
 
 #[derive(Subcommand)]
@@ -209,6 +213,7 @@ pub fn run() -> anyhow::Result<()> {
             no_index: cli.no_index,
             context_lines: cli.context_lines,
             regex: cli.regex.as_deref(),
+            highlight: cli.highlight,
         }),
     }
 }

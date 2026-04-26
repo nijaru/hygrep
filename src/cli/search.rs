@@ -1,12 +1,12 @@
 use std::path::Path;
 use std::time::Instant;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 use crate::boost::boost_results;
 use crate::cli::output::print_results;
-use crate::index::{self, walker, SemanticIndex};
-use crate::types::{FileRef, OutputFormat, EXIT_ERROR, EXIT_MATCH, EXIT_NO_MATCH};
+use crate::index::{self, SemanticIndex, walker};
+use crate::types::{EXIT_ERROR, EXIT_MATCH, EXIT_NO_MATCH, FileRef, OutputFormat};
 
 pub struct SearchParams<'a> {
     pub query: Option<&'a str>,
@@ -21,6 +21,7 @@ pub struct SearchParams<'a> {
     pub no_index: bool,
     pub context_lines: usize,
     pub regex: Option<&'a str>,
+    pub highlight: bool,
 }
 
 pub fn run(params: &SearchParams) -> Result<()> {
@@ -39,6 +40,7 @@ pub fn run(params: &SearchParams) -> Result<()> {
             params.format,
             params.quiet,
             params.context_lines,
+            params.highlight,
         );
     }
 
@@ -151,6 +153,7 @@ pub fn run(params: &SearchParams) -> Result<()> {
         false,
         Some(&path),
         params.context_lines,
+        params.highlight.then_some(query),
     );
 
     if !params.quiet && !matches!(params.format, OutputFormat::Json | OutputFormat::FilesOnly) {
@@ -180,6 +183,7 @@ fn run_similar_search(
     format: OutputFormat,
     quiet: bool,
     context_lines: usize,
+    highlight: bool,
 ) -> Result<()> {
     let (file_path, line, name) = match &file_ref {
         FileRef::ByName { path, name } => (path.as_str(), None, Some(name.as_str())),
@@ -251,7 +255,14 @@ fn run_similar_search(
         std::process::exit(EXIT_NO_MATCH);
     }
 
-    print_results(&results, format, true, Some(&index_root), context_lines);
+    print_results(
+        &results,
+        format,
+        true,
+        Some(&index_root),
+        context_lines,
+        highlight.then_some(boost_query),
+    );
 
     if !quiet && !matches!(format, OutputFormat::Json) {
         let result_word = if results.len() == 1 {

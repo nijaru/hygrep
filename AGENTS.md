@@ -114,6 +114,7 @@ Cargo.toml
 - Exit codes: 0 = match found, 1 = no match, 2 = error
 - File refs: `file#name` (by block name), `file:line` (by line number)
 - Output formats: default (colored), `--json`, `--no-content`, `-l` (files only)
+- `--highlight` colors query-related tokens in terminal previews only; JSON and files-only output stay unstyled.
 
 ## AI Context
 

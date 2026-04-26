@@ -65,6 +65,7 @@ og mcp                         # Start MCP server (JSON-RPC over stdio)
 og -n 5 "error handling" .     # Limit to 5 results
 og --json "auth" .             # JSON output
 og --no-content "auth" .       # JSON output without source content
+og --highlight "auth" .        # Highlight query-related tokens in previews
 og -l "config" .               # List matching files only
 og -t py,js "api" .            # Filter by file type
 og --exclude "tests/*" "fn" .  # Exclude patterns

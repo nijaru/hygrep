@@ -5,6 +5,7 @@
 ### Added
 
 - `og context <file|dir>` — show ranked file and symbol context from the existing index. Supports `--json`, `--skeleton`, `-n`, `--symbols`, and the `repomap` alias.
+- `--highlight` — highlight query-related tokens in default terminal preview output without changing JSON/files-only output.
 - Migration to Rust Edition 2024.
 - High-performance zero-copy indexing using `into_par_iter` to reduce string allocations.
 - Optimized Tree-sitter extraction with direct UTF-8 text access.
