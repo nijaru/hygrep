@@ -3,10 +3,12 @@
 ## Current Phase: v0.0.3-rc.1 (Stable) -> v0.0.4 Development
 
 ## Active Focus
-- **Agent Context:** PageRank-based RepoMap generation (`tk-8sk7`).
-- **Benchmarking:** Full CoIR runs can now use `bench/coir_eval.py`; smoke validation passed.
+- **Roadmap:** Recentered on local code context engine with grep-like UX.
+- **Next Build:** Graph-aware context ranking (`tk-8sk7`) as a minimal `og repomap`-style surface.
+- **Benchmarking:** CoIR smoke path exists; full runs are available but not the current focus.
 
 ## Recent Wins
+- **Roadmap Realignment:** Reframed semantic search as the entry point and context surfaces as the product direction.
 - **CoIR Harness:** Added fresh-index CoSQA evaluator smoke path and fixed bulk-index stalls found during validation.
 - **Code Skeletons:** Implemented `tree-sitter` signature extraction (`og outline --skeleton`), stripping function bodies to optimize token usage for AI agents.
 - **Iteration Speed:** Created a local "Golden Corpus" benchmark in `bench/golden` for instant (<1s) evaluation loops (MRR/Recall).

@@ -3,11 +3,13 @@
 ## Principles
 - **Semantic First:** Precision over lexical speed (CodeDB is the speed benchmark, not the goal).
 - **Tiger Style:** Minimum 2 `assert!` per function; fixed loop/recursion bounds.
-- **Agent-Centric:** Context engineering (skeletons, repomaps) is the primary value.
+- **Context Engine:** Semantic search is the entry point; compact code context surfaces are the product direction.
+- **Grep-like UX:** Human CLI usage must stay direct, scriptable, and inspectable.
 - **Local-First:** 100% offline indexing and search.
 - **High-Iteration Logic:** Use small local corpora for development; reserve massive datasets for final release validation.
 
 ## Log
+- **[2026-04-26] Context:** Adjacent tools now cluster around local semantic code search for humans and agents. → **Decision:** Position `omengrep` as a local code context engine with grep-like UX, not just a semantic grep clone. Prioritize retrieval quality, compact context surfaces, graph-aware ranking, and measured scale. → **Rationale:** Keeps search as the core workflow while giving `og` a clearer differentiation against ColGREP, grepai, mgrep, Sourcegraph/Zoekt, and structural search tools.
 - **[2026-04-23] Context:** Agentic token limits require surgical context over massive repo maps. Skeletons (`og outline --skeleton`) needed to strip full bodies. → **Decision:** Strip bodies inside `tree-sitter` nodes like `block`, `class_body` and replace with `...` or `{ ... }`. → **Rationale:** Maximizes token efficiency for MCP servers supplying context to LLMs, reducing noise without losing structural signatures.
 - **[2026-04-05] Context:** Large codebases load all block structures in memory sequentially causing latency spikes. Upgrading to omendb 0.0.36 unlocks the mmap feature. → **Decision:** Pipe parallel rayon extraction directly to the embedder via an mpsc sync channel. → **Rationale:** Streamlines latency profile and limits maximum active memory.
 - **[2026-04-05] Context:** `omengrep`'s core features (tree-sitter extraction, multi-vector embeddings, MCP server) align perfectly with the context needs of modern AI coding agents (e.g., Cursor, Windsurf, Claude Code). → **Exploration:** We are researching evolving the project positioning from a "semantic grep" CLI into an "Agentic Code Intelligence Context Engine." We are investigating whether features like Code Skeletons (`og outline --skeleton`) should prioritize surgical, token-efficient MCP delivery (e.g., stripping docstrings by default) over human-readability. → **Status:** No decision made yet. We are exploring what maximizes an agent's effectiveness.

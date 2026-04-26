@@ -6,6 +6,8 @@ status: active
 
 # Competitive Analysis: Local Semantic Code Search CLIs
 
+**Use note (2026-04-26):** This is background context, not a current source of truth. Verify live project status before citing stars, versions, dates, or feature claims.
+
 **Researched:** 2026-03-03
 **Refreshed:** 2026-03-13 (`qmd` positioning, omengrep release status)
 **Scope:** Local/offline tools only. Cloud-SaaS tools included where they have a local mode or are commonly confused with local tools.
