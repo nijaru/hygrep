@@ -11,6 +11,8 @@ og build ./src                        # Build index (required first)
 og "query" ./src                      # Semantic search (text query)
 og file.rs#func                       # Find similar code (by name)
 og file.rs:42                         # Find similar code (by line)
+og outline ./src --skeleton           # Structural signatures
+og context ./src                      # Ranked file/symbol context
 cargo test                            # Run tests
 ```
 
@@ -49,8 +51,10 @@ src/
 │   ├── status.rs           # Index status
 │   ├── clean.rs            # Delete index
 │   ├── list.rs             # List indexes
+│   ├── outline.rs          # Structural block/skeleton output
+│   ├── context.rs          # Ranked file/symbol context
 │   ├── model.rs            # Model management
-│   └── output.rs           # Result formatting (default, json, compact, files-only)
+│   └── output.rs           # Result formatting (default, json, no-content, files-only)
 ├── embedder/
 │   ├── mod.rs              # Embedder trait + factory
 │   ├── onnx.rs             # ORT ONNX inference (LateOn-Code-edge)
@@ -62,7 +66,7 @@ src/
 │   └── text.rs             # Markdown/prose chunking
 └── index/
     ├── mod.rs              # SemanticIndex (omendb multi-vector)
-    ├── manifest.rs         # Manifest v8 (JSON, tracks files/hashes/blocks)
+    ├── manifest.rs         # Manifest v10 (JSON, tracks files/hashes/blocks)
     └── walker.rs           # File walker (ignore crate, gitignore-aware)
 Cargo.toml
 ```
@@ -73,7 +77,7 @@ Cargo.toml
 | ------------ | ------------------------ | ------------------------------------- |
 | Rust         | nightly-2025-12-04       | Required for omendb (portable_simd)   |
 | ort          | 2.0.0-rc.11              | ONNX Runtime inference                |
-| omendb       | 0.0.27 (path dep)        | Multi-vector + BM25 hybrid search     |
+| omendb       | 0.0.36                  | Multi-vector + BM25 hybrid search     |
 | tree-sitter  | 0.25                     | AST parsing (25 languages)            |
 | Embeddings   | LateOn-Code-edge INT8    | 17M params, 48d/token, ~17MB          |
 
@@ -81,7 +85,7 @@ Cargo.toml
 
 | Aspect     | Standard                                           |
 | ---------- | -------------------------------------------------- |
-| Edition    | 2021 (moving to 2024)                              |
+| Edition    | 2024                                               |
 | Errors     | `anyhow` (app), `thiserror` (lib boundaries)       |
 | Imports    | `crate::` over `super::`, stdlib -> external -> local |
 | Parallelism| `rayon` for CPU-bound extraction                   |
@@ -109,7 +113,7 @@ Cargo.toml
 - Auto-update: search detects stale files and re-indexes before searching
 - Exit codes: 0 = match found, 1 = no match, 2 = error
 - File refs: `file#name` (by block name), `file:line` (by line number)
-- Output formats: default (colored), `--json`, `--json --compact`, `-l` (files only)
+- Output formats: default (colored), `--json`, `--no-content`, `-l` (files only)
 
 ## AI Context
 

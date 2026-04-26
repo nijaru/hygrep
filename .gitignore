@@ -9,6 +9,7 @@ ai/tmp/
 
 # Index
 .og/
+bench/golden/.og/
 
 # Benchmark corpus
 bench/corpus/

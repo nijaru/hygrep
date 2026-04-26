@@ -54,6 +54,8 @@ og build [path]                # Build index (required first)
 og "query" [path]              # Search
 og file.rs#func_name           # Find code similar to a named block
 og file.rs:42                  # Find code similar to a specific line
+og outline [path]              # Show indexed block structure
+og context [path]              # Show ranked file/symbol context
 og status [path]               # Show index info
 og list [path]                 # List all indexes under path
 og clean [path]                # Delete index
@@ -62,6 +64,7 @@ og mcp                         # Start MCP server (JSON-RPC over stdio)
 # Options
 og -n 5 "error handling" .     # Limit to 5 results
 og --json "auth" .             # JSON output
+og --no-content "auth" .       # JSON output without source content
 og -l "config" .               # List matching files only
 og -t py,js "api" .            # Filter by file type
 og --exclude "tests/*" "fn" .  # Exclude patterns

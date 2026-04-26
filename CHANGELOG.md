@@ -1,9 +1,10 @@
 # Changelog
 
-## [0.0.3] - 2026-04-05
+## [Unreleased]
 
 ### Added
 
+- `og context <file|dir>` — show ranked file and symbol context from the existing index. Supports `--json`, `--skeleton`, `-n`, `--symbols`, and the `repomap` alias.
 - Migration to Rust Edition 2024.
 - High-performance zero-copy indexing using `into_par_iter` to reduce string allocations.
 - Optimized Tree-sitter extraction with direct UTF-8 text access.
@@ -14,7 +15,7 @@
 
 ### Changed
 
-- Updated `omendb` to `0.0.33` (registry).
+- Updated `omendb` to `0.0.36` (registry).
 - Benchmarks modernized to match latest `omendb` API and traits.
 
 ## [0.0.2] - 2026-03-04
