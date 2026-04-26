@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: nightly-2025-12-04
 
 jobs:
   check:
@@ -18,29 +19,27 @@ jobs:
       - name: Install Rust nightly
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly-2025-12-04
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
 
       - name: Check omendb dependency
         run: |
-          if grep -q 'path = ' Cargo.toml; then
-            echo "::warning::Cargo.toml has path dependencies — CI requires crates.io deps"
-            echo "SKIP_BUILD=true" >> $GITHUB_ENV
+          if cargo metadata --format-version 1 \
+            | jq -e '.packages[] | select(.name == "omendb" and .source == null)' >/dev/null; then
+            echo "::error::omendb must resolve from crates.io in CI"
+            exit 1
           fi
 
       - name: Check formatting
         run: cargo fmt --check
 
       - name: Build
-        if: env.SKIP_BUILD != 'true'
         run: cargo build --release
 
       - name: Test
-        if: env.SKIP_BUILD != 'true'
         run: cargo test
 
       - name: Clippy
-        if: env.SKIP_BUILD != 'true'
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
