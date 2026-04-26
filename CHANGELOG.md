@@ -27,7 +27,7 @@
 
 - Avoided a build deadlock caused by nested Rayon use between extraction workers and tokenizer padding.
 - Fixed noisy context output where generic symbol names could dominate file rankings.
-- Fixed duplicate extraction of decorated Python functions.
+- Fixed extraction of decorated Python symbols so decorators do not replace function/class names or types.
 
 ### Removed
 

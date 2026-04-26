@@ -88,14 +88,15 @@ impl Extractor {
                     continue;
                 }
 
-                let name = extract_name(&node, content_bytes);
+                let semantic_node = decorated_inner_definition(&node).unwrap_or(node);
+                let name = extract_name(&semantic_node, content_bytes);
                 let node_text = node
                     .utf8_text(content_bytes)
                     .unwrap_or_default()
                     .to_string();
 
                 let capture_name = query.capture_names()[capture.index as usize];
-                let block_type = capture_name;
+                let block_type = decorated_block_type(&semantic_node).unwrap_or(capture_name);
 
                 let start_line = node.start_position().row;
                 let end_line = node.end_position().row;
@@ -195,10 +196,29 @@ fn remove_nested_blocks(mut blocks: Vec<Block>) -> Vec<Block> {
 }
 
 fn is_decorated_inner_definition(node: &tree_sitter::Node) -> bool {
-    node.kind() == "function_definition"
+    matches!(node.kind(), "function_definition" | "class_definition")
         && node
             .parent()
             .is_some_and(|parent| parent.kind() == "decorated_definition")
+}
+
+fn decorated_inner_definition<'a>(node: &tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a>> {
+    if node.kind() != "decorated_definition" {
+        return None;
+    }
+
+    (0..node.child_count()).find_map(|i| {
+        let child = node.child(i as u32)?;
+        matches!(child.kind(), "function_definition" | "class_definition").then_some(child)
+    })
+}
+
+fn decorated_block_type(node: &tree_sitter::Node) -> Option<&'static str> {
+    match node.kind() {
+        "function_definition" => Some("function"),
+        "class_definition" => Some("class"),
+        _ => None,
+    }
 }
 
 /// Extract the name identifier from a tree-sitter node.
@@ -322,7 +342,7 @@ mod tests {
     use crate::extractor::Extractor;
 
     #[test]
-    fn decorated_python_function_is_extracted_once() {
+    fn decorated_python_function_uses_inner_name() {
         let mut extractor = Extractor::new();
         let blocks = extractor
             .extract(
@@ -332,7 +352,7 @@ from celery import Celery
 
 app = Celery("myapp")
 
-@app.task
+@task
 def send_async_email(email_address: str, subject: str):
     print(subject)
 "#,
@@ -346,5 +366,33 @@ def send_async_email(email_address: str, subject: str):
 
         assert_eq!(matching.len(), 1);
         assert_eq!(matching[0].start_line, 5);
+        assert_eq!(matching[0].block_type, "function");
+    }
+
+    #[test]
+    fn decorated_python_class_uses_inner_name_and_type() {
+        let mut extractor = Extractor::new();
+        let blocks = extractor
+            .extract(
+                "models.py",
+                r#"
+def dataclass(cls):
+    return cls
+
+@dataclass
+class DecoratedThing:
+    pass
+"#,
+            )
+            .unwrap();
+
+        let matching: Vec<_> = blocks
+            .iter()
+            .filter(|block| block.name == "DecoratedThing")
+            .collect();
+
+        assert_eq!(matching.len(), 1);
+        assert_eq!(matching[0].start_line, 4);
+        assert_eq!(matching[0].block_type, "class");
     }
 }
