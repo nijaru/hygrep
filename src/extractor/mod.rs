@@ -202,7 +202,7 @@ fn extract_name(node: &tree_sitter::Node, source: &[u8]) -> String {
 
     // Search direct children
     for i in 0..node.child_count() {
-        if let Some(child) = node.child(i)
+        if let Some(child) = node.child(i as u32)
             && name_types.contains(&child.kind())
             && let Ok(text) = child.utf8_text(source)
         {
@@ -212,9 +212,9 @@ fn extract_name(node: &tree_sitter::Node, source: &[u8]) -> String {
 
     // Search one level deeper
     for i in 0..node.child_count() {
-        if let Some(child) = node.child(i) {
+        if let Some(child) = node.child(i as u32) {
             for j in 0..child.child_count() {
-                if let Some(grandchild) = child.child(j)
+                if let Some(grandchild) = child.child(j as u32)
                     && name_types.contains(&grandchild.kind())
                     && let Ok(text) = grandchild.utf8_text(source)
                 {
@@ -245,7 +245,7 @@ fn extract_skeleton(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
 
     let mut body_node = None;
     for i in 0..node.child_count() {
-        if let Some(child) = node.child(i) {
+        if let Some(child) = node.child(i as u32) {
             let kind = child.kind();
             if body_types.contains(&kind) {
                 body_node = Some(child);
