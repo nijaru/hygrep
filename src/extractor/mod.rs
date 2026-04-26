@@ -79,6 +79,10 @@ impl Extractor {
         while let Some(m) = matches.next() {
             for capture in m.captures {
                 let node = capture.node;
+                if is_decorated_inner_definition(&node) {
+                    continue;
+                }
+
                 let range = (node.start_byte(), node.end_byte());
                 if !seen_ranges.insert(range) {
                     continue;
@@ -170,14 +174,16 @@ fn remove_nested_blocks(mut blocks: Vec<Block>) -> Vec<Block> {
             if !keep[j] {
                 continue;
             }
-            if blocks[j].start_line >= blocks[i].start_line
+            let is_contained = blocks[j].start_line >= blocks[i].start_line
                 && blocks[j].end_line <= blocks[i].end_line
                 && (blocks[j].start_line != blocks[i].start_line
-                    || blocks[j].end_line != blocks[i].end_line)
-            {
-                keep[i] = false;
-                break;
+                    || blocks[j].end_line != blocks[i].end_line);
+            if !is_contained {
+                continue;
             }
+
+            keep[i] = false;
+            break;
         }
     }
 
@@ -186,6 +192,13 @@ fn remove_nested_blocks(mut blocks: Vec<Block>) -> Vec<Block> {
         .enumerate()
         .filter_map(|(i, b)| if keep[i] { Some(b) } else { None })
         .collect()
+}
+
+fn is_decorated_inner_definition(node: &tree_sitter::Node) -> bool {
+    node.kind() == "function_definition"
+        && node
+            .parent()
+            .is_some_and(|parent| parent.kind() == "decorated_definition")
 }
 
 /// Extract the name identifier from a tree-sitter node.
@@ -302,4 +315,36 @@ fn fallback_head(file_path: &str, content: &str) -> Vec<Block> {
         content: fallback_content.to_string(),
         skeleton: fallback_content.to_string(),
     }]
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::extractor::Extractor;
+
+    #[test]
+    fn decorated_python_function_is_extracted_once() {
+        let mut extractor = Extractor::new();
+        let blocks = extractor
+            .extract(
+                "queue.py",
+                r#"
+from celery import Celery
+
+app = Celery("myapp")
+
+@app.task
+def send_async_email(email_address: str, subject: str):
+    print(subject)
+"#,
+            )
+            .unwrap();
+
+        let matching: Vec<_> = blocks
+            .iter()
+            .filter(|block| block.name == "send_async_email")
+            .collect();
+
+        assert_eq!(matching.len(), 1);
+        assert_eq!(matching[0].start_line, 5);
+    }
 }

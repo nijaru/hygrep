@@ -17,7 +17,22 @@
 ### Changed
 
 - Updated `omendb` to `0.0.37` (registry).
+- Updated direct dependencies for the release baseline, including `hf-hub`, `indicatif`, `ort`, `rand`, and Tree-sitter crates.
+- Clean builds now stream file contents through indexing instead of retaining all file bodies up front.
+- Reduced embed batch size to bound ONNX runtime memory during indexing.
+- `og context` now caps high-fanout reference scoring and filters generic high-frequency definitions from ranked context.
 - Benchmarks modernized to match latest `omendb` API and traits.
+
+### Fixed
+
+- Avoided a build deadlock caused by nested Rayon use between extraction workers and tokenizer padding.
+- Fixed noisy context output where generic symbol names could dominate file rankings.
+- Fixed duplicate extraction of decorated Python functions.
+
+### Removed
+
+- Removed the experimental MCP server and install command. The supported agent interface is the CLI with JSON/no-content/files-only output.
+- Removed the `repomap` alias. Use `og context` for ranked file and symbol context.
 
 ## [0.0.2] - 2026-03-04
 
