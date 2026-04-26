@@ -2,7 +2,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::index::{walker, SemanticIndex, INDEX_DIR};
+use crate::index::{INDEX_DIR, SemanticIndex, walker};
 use crate::types::EXIT_ERROR;
 
 pub fn run(path: &Path) -> Result<()> {

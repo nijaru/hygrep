@@ -3,7 +3,7 @@ use std::path::Path;
 use anyhow::Result;
 use owo_colors::OwoColorize;
 
-use crate::index::{find_index_root, manifest::Manifest, VECTORS_DIR};
+use crate::index::{VECTORS_DIR, find_index_root, manifest::Manifest};
 use crate::types::EXIT_ERROR;
 
 /// A block entry for outline display.
@@ -77,7 +77,11 @@ pub fn run(path: &Path, json: bool, skeleton: bool) -> Result<()> {
     Ok(())
 }
 
-fn get_blocks(block_ids: &[String], store: &omendb::VectorStore, with_skeleton: bool) -> Vec<OutlineEntry> {
+fn get_blocks(
+    block_ids: &[String],
+    store: &omendb::VectorStore,
+    with_skeleton: bool,
+) -> Vec<OutlineEntry> {
     let mut entries: Vec<OutlineEntry> = block_ids
         .iter()
         .filter_map(|id| {
@@ -96,7 +100,9 @@ fn get_blocks(block_ids: &[String], store: &omendb::VectorStore, with_skeleton: 
                 start_line: meta.get("start_line").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
                 end_line: meta.get("end_line").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
                 skeleton: if with_skeleton {
-                    meta.get("skeleton").and_then(|v| v.as_str()).map(|s| s.to_string())
+                    meta.get("skeleton")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
                 } else {
                     None
                 },
@@ -107,7 +113,11 @@ fn get_blocks(block_ids: &[String], store: &omendb::VectorStore, with_skeleton: 
     entries
 }
 
-fn print_default(file_entries: &[(&str, &[String])], store: &omendb::VectorStore, with_skeleton: bool) {
+fn print_default(
+    file_entries: &[(&str, &[String])],
+    store: &omendb::VectorStore,
+    with_skeleton: bool,
+) {
     for (rel_path, block_ids) in file_entries {
         println!("{}", rel_path.bold());
         let blocks = get_blocks(block_ids, store, with_skeleton);
@@ -129,7 +139,11 @@ fn print_default(file_entries: &[(&str, &[String])], store: &omendb::VectorStore
     }
 }
 
-fn print_json(file_entries: &[(&str, &[String])], store: &omendb::VectorStore, with_skeleton: bool) -> Result<()> {
+fn print_json(
+    file_entries: &[(&str, &[String])],
+    store: &omendb::VectorStore,
+    with_skeleton: bool,
+) -> Result<()> {
     let output: Vec<serde_json::Value> = file_entries
         .iter()
         .map(|(rel_path, block_ids)| {

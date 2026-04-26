@@ -11,7 +11,7 @@
 
 use std::path::Path;
 
-use divan::{black_box, Bencher};
+use divan::{Bencher, black_box};
 use omendb::{MultiVectorConfig, SearchOptions, VectorStore};
 
 fn main() {
@@ -76,7 +76,11 @@ fn make_store(dir: &Path) -> VectorStore {
 #[divan::bench]
 fn index_multi(bencher: Bencher) {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("bench_insert").to_string_lossy().into_owned();
+    let path = dir
+        .path()
+        .join("bench_insert")
+        .to_string_lossy()
+        .into_owned();
     let mut store = VectorStore::multi_vector_with(TOKEN_DIM, MultiVectorConfig::compact())
         .unwrap()
         .persist(&path)

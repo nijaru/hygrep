@@ -157,9 +157,7 @@ fn should_skip(path: &Path) -> bool {
     // Sensitive patterns (case-insensitive)
     let name_lower = name.to_lowercase();
     for pattern in SENSITIVE_PATTERNS {
-        if name_lower == pattern.to_lowercase()
-            || name_lower.ends_with(&pattern.to_lowercase())
-        {
+        if name_lower == pattern.to_lowercase() || name_lower.ends_with(&pattern.to_lowercase()) {
             return true;
         }
     }

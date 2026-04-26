@@ -36,11 +36,7 @@ fn split_word(word: &str) -> Vec<String> {
         .map(|s| s.to_lowercase())
         .collect();
 
-    if parts.len() > 1 {
-        parts
-    } else {
-        Vec::new()
-    }
+    if parts.len() > 1 { parts } else { Vec::new() }
 }
 
 /// Language keywords that add noise to BM25 without discriminative value.

@@ -1,6 +1,6 @@
 use anyhow::Result;
-use hf_hub::api::sync::Api;
 use hf_hub::Cache;
+use hf_hub::api::sync::Api;
 
 use crate::embedder;
 
