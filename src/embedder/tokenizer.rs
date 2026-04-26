@@ -40,13 +40,14 @@ impl TokenizerWrapper {
 
     /// Encode texts for document embedding.
     pub fn encode_documents(&self, texts: &[&str]) -> Result<Vec<tokenizers::Encoding>> {
-        let inputs: Vec<tokenizers::EncodeInput> = texts
+        texts
             .iter()
-            .map(|t| tokenizers::EncodeInput::Single((*t).into()))
-            .collect();
-        self.doc_tokenizer
-            .encode_batch(inputs, true)
-            .map_err(|e| anyhow::anyhow!("{e}"))
+            .map(|text| {
+                self.doc_tokenizer
+                    .encode(tokenizers::EncodeInput::Single((*text).into()), true)
+                    .map_err(|e| anyhow::anyhow!("{e}"))
+            })
+            .collect()
     }
 
     /// Encode a query (shorter max length).

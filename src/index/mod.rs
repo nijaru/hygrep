@@ -25,6 +25,9 @@ const DOC_BLOCK_TYPES: &[&str] = &["text", "section"];
 /// When search scope filters results, over-fetch by this factor to compensate.
 const SCOPE_OVERFETCH: usize = 5;
 
+/// Keep omendb's WAL below its auto-checkpoint threshold during bulk indexing.
+const INDEX_FLUSH_INTERVAL_BLOCKS: usize = 1_000;
+
 /// Manages semantic search index using omendb.
 pub struct SemanticIndex {
     root: PathBuf,
@@ -134,16 +137,18 @@ impl SemanticIndex {
         struct PreparedBlock {
             text: String,
             block: Block,
-            rel_path: String,
-            file_hash: String,
-            mtime: u64,
         }
 
         let mut batch_buffer: Vec<PreparedBlock> = Vec::new();
         let batch_size = embedder::MODEL.batch_size;
         let mut processed_files = 0;
+        let mut pending_store_ops = 0usize;
 
-        let mut embed_batch = |batch: &mut Vec<PreparedBlock>, store: &mut omendb::VectorStore, stats: &mut IndexStats| -> Result<()> {
+        let embed_batch = |batch: &mut Vec<PreparedBlock>,
+                           store: &mut omendb::VectorStore,
+                           stats: &mut IndexStats,
+                           pending_store_ops: &mut usize|
+         -> Result<()> {
             if batch.is_empty() {
                 return Ok(());
             }
@@ -177,6 +182,12 @@ impl SemanticIndex {
                 let bm25_text = split_identifiers(&p.text);
                 store.store_with_text(&p.block.id, tokens, &bm25_text, metadata)?;
                 stats.blocks += 1;
+                *pending_store_ops += 1;
+
+                if *pending_store_ops >= INDEX_FLUSH_INTERVAL_BLOCKS {
+                    store.flush()?;
+                    *pending_store_ops = 0;
+                }
             }
 
             batch.clear();
@@ -231,22 +242,26 @@ impl SemanticIndex {
 
                 for block in blocks {
                     let text = block.embedding_text();
-                    batch_buffer.push(PreparedBlock {
-                        text,
-                        block,
-                        rel_path: rel_path.clone(),
-                        file_hash: file_hash.clone(),
-                        mtime,
-                    });
+                    batch_buffer.push(PreparedBlock { text, block });
 
                     if batch_buffer.len() >= batch_size {
-                        embed_batch(&mut batch_buffer, &mut store, &mut stats)?;
+                        embed_batch(
+                            &mut batch_buffer,
+                            &mut store,
+                            &mut stats,
+                            &mut pending_store_ops,
+                        )?;
                     }
                 }
             }
 
             // Flush remaining items
-            embed_batch(&mut batch_buffer, &mut store, &mut stats)?;
+            embed_batch(
+                &mut batch_buffer,
+                &mut store,
+                &mut stats,
+                &mut pending_store_ops,
+            )?;
             store.flush()?;
             manifest.save(&self.index_dir)?;
 

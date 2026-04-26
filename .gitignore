@@ -12,6 +12,7 @@ ai/tmp/
 
 # Benchmark corpus
 bench/corpus/
+bench/coir_work/
 
 # Git worktrees
 .worktrees/
