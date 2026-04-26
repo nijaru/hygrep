@@ -342,3 +342,43 @@ fn similar_search_shows_raw_score_not_percentage() {
         "similar search must not show '% similar'; got: {stdout}"
     );
 }
+
+#[test]
+fn context_json_output() {
+    let tmp = build_fixture_index();
+
+    let output = og()
+        .args([
+            "context",
+            "--json",
+            "-n",
+            "2",
+            "--symbols",
+            "3",
+            tmp.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(output.get_output().stdout.clone()).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let files = parsed.as_array().unwrap();
+    assert!(!files.is_empty());
+    assert!(files.len() <= 2);
+
+    let first = &files[0];
+    assert!(first.get("file").is_some());
+    assert!(first.get("score").is_some());
+    assert!(first.get("inbound_refs").is_some());
+    assert!(first["symbols"].as_array().unwrap().len() <= 3);
+}
+
+#[test]
+fn repomap_alias_runs_context() {
+    let tmp = build_fixture_index();
+
+    og().args(["repomap", "-n", "1", tmp.path().to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("score:"));
+}

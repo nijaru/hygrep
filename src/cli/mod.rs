@@ -1,5 +1,6 @@
 pub mod build;
 pub mod clean;
+pub mod context;
 pub mod list;
 pub mod mcp;
 pub mod model;
@@ -122,6 +123,25 @@ enum Command {
         #[arg(long = "skeleton")]
         skeleton: bool,
     },
+    /// Show ranked files and symbols for compact code context.
+    #[command(alias = "repomap")]
+    Context {
+        /// File or directory to summarize.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Number of files to show.
+        #[arg(short = 'n', default_value = "12")]
+        num_files: usize,
+        /// Number of symbols per file.
+        #[arg(long = "symbols", default_value = "5")]
+        symbols_per_file: usize,
+        /// JSON output.
+        #[arg(short = 'j', long = "json")]
+        json: bool,
+        /// Include skeleton snippets.
+        #[arg(long = "skeleton")]
+        skeleton: bool,
+    },
     /// Show embedding model status.
     Model {
         #[command(subcommand)]
@@ -148,7 +168,18 @@ pub fn run() -> anyhow::Result<()> {
         Some(Command::Status { path }) => status::run(&path),
         Some(Command::Clean { path, recursive }) => clean::run(&path, recursive),
         Some(Command::List { path }) => list::run(&path),
-        Some(Command::Outline { path, json, skeleton }) => outline::run(&path, json, skeleton),
+        Some(Command::Outline {
+            path,
+            json,
+            skeleton,
+        }) => outline::run(&path, json, skeleton),
+        Some(Command::Context {
+            path,
+            num_files,
+            symbols_per_file,
+            json,
+            skeleton,
+        }) => context::run(&path, num_files, symbols_per_file, json, skeleton),
         Some(Command::Model { action }) => match action {
             Some(ModelAction::Install) => model::install(),
             None => model::status(),
