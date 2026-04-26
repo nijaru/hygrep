@@ -382,3 +382,42 @@ fn repomap_alias_runs_context() {
         .success()
         .stdout(predicate::str::contains("score:"));
 }
+
+#[test]
+fn context_scope_excludes_sibling_directory() {
+    let tmp = TempDir::new().unwrap();
+    std::fs::create_dir_all(tmp.path().join("src/cli")).unwrap();
+    std::fs::create_dir_all(tmp.path().join("src/cli_utils")).unwrap();
+
+    std::fs::write(
+        tmp.path().join("src/cli/mod.rs"),
+        "pub struct CommandRouter {}\npub fn route_command() {}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        tmp.path().join("src/cli_utils/helper.rs"),
+        "pub struct UtilityRouter {}\npub fn route_utility() {}\n",
+    )
+    .unwrap();
+
+    og().args(["build", tmp.path().to_str().unwrap()])
+        .assert()
+        .success();
+
+    let cli_path = tmp.path().join("src/cli");
+    let out = og()
+        .args(["context", "--json", cli_path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+
+    let files = json_files(&out.stdout);
+    assert!(
+        files.iter().any(|f| f == "src/cli/mod.rs"),
+        "scoped context must include src/cli/mod.rs; got: {files:?}"
+    );
+    assert!(
+        !files.iter().any(|f| f.contains("cli_utils")),
+        "scoped context must exclude src/cli_utils; got: {files:?}"
+    );
+}
