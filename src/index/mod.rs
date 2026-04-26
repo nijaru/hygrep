@@ -28,6 +28,10 @@ const SCOPE_OVERFETCH: usize = 5;
 /// Bound WAL growth during bulk indexing without forcing tiny checkpoint batches.
 const INDEX_FLUSH_INTERVAL_BLOCKS: usize = 20_000;
 
+/// Bound extracted blocks waiting for the embedder. Embedding is the slow stage,
+/// so a large queue mostly increases memory without improving throughput.
+const EXTRACTION_QUEUE_BOUND: usize = 64;
+
 /// Manages semantic search index using omendb.
 pub struct SemanticIndex {
     root: PathBuf,
@@ -81,7 +85,10 @@ impl SemanticIndex {
         on_progress: Option<&dyn Fn(usize, usize, &str)>,
     ) -> Result<IndexStats> {
         assert!(files.len() <= 10_000_000, "index: max files bound");
-        assert!(self.index_dir.components().count() > 0, "index: valid index_dir");
+        assert!(
+            self.index_dir.components().count() > 0,
+            "index: valid index_dir"
+        );
 
         std::fs::create_dir_all(&self.index_dir)?;
         let mut manifest = Manifest::load(&self.index_dir)?;
@@ -129,8 +136,10 @@ impl SemanticIndex {
         store.flush()?;
 
         // Extract blocks in parallel, streaming via mpsc to the embedder thread
-        let (tx, rx) = std::sync::mpsc::sync_channel::<(Vec<Block>, String, String, u64)>(1024);
-        
+        let (tx, rx) = std::sync::mpsc::sync_channel::<(Vec<Block>, String, String, u64)>(
+            EXTRACTION_QUEUE_BOUND,
+        );
+
         let to_process_len = to_process.len();
 
         // Consumer thread (main thread) handles batching and embedding
@@ -197,22 +206,24 @@ impl SemanticIndex {
         std::thread::scope(|s| {
             // Spawn producer thread for parallel extraction
             s.spawn(move || {
-                to_process
-                    .into_par_iter()
-                    .for_each_init(
-                        Extractor::new,
-                        |extractor, (_path, content, rel_path, file_hash, mtime)| {
-                            let blocks = extractor.extract(&rel_path, content).unwrap_or_default();
-                            let _ = tx.send((blocks, rel_path, file_hash, mtime));
-                        },
-                    );
+                to_process.into_par_iter().for_each_init(
+                    Extractor::new,
+                    |extractor, (_path, content, rel_path, file_hash, mtime)| {
+                        let blocks = extractor.extract(&rel_path, content).unwrap_or_default();
+                        let _ = tx.send((blocks, rel_path, file_hash, mtime));
+                    },
+                );
             });
 
             for (blocks, rel_path, file_hash, mtime) in rx {
                 processed_files += 1;
-                
+
                 if let Some(progress) = on_progress {
-                    progress(processed_files, to_process_len, &format!("Processing {}/{}", processed_files, to_process_len));
+                    progress(
+                        processed_files,
+                        to_process_len,
+                        &format!("Processing {}/{}", processed_files, to_process_len),
+                    );
                 }
 
                 if blocks.is_empty() {
@@ -295,12 +306,20 @@ impl SemanticIndex {
 
         // Run both BM25+MaxSim and pure semantic search concurrently, merge by ID
         let bm25_query = crate::synonyms::expand_query(&split_identifiers(query));
-        
+
         let (bm25_result, semantic_result) = rayon::join(
-            || store.search_multi_with_text(&bm25_query, &token_refs, search_k, Some(search_k), false),
+            || {
+                store.search_multi_with_text(
+                    &bm25_query,
+                    &token_refs,
+                    search_k,
+                    Some(search_k),
+                    false,
+                )
+            },
             || store.query_with_options(&token_refs, search_k, &SearchOptions::default()),
         );
-        
+
         let bm25_results = bm25_result?;
         let semantic_results = semantic_result?;
 

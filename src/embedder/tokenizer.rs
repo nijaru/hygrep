@@ -12,6 +12,11 @@ pub struct TokenizerWrapper {
 
 impl TokenizerWrapper {
     pub fn new(tokenizer_path: &str, config: &ModelConfig) -> Result<Self> {
+        // `og build` already uses Rayon for extraction. Tokenizers also uses the
+        // global Rayon pool for padding, which can deadlock if extractor workers
+        // fill the bounded channel while the consumer waits on tokenizer jobs.
+        tokenizers::parallelism::set_parallelism(false);
+
         let base = Tokenizer::from_file(tokenizer_path).map_err(|e| anyhow::anyhow!("{e}"))?;
 
         let mut doc_tokenizer = base.clone();
