@@ -2,7 +2,6 @@ pub mod build;
 pub mod clean;
 pub mod context;
 pub mod list;
-pub mod mcp;
 pub mod model;
 pub mod outline;
 pub mod output;
@@ -128,7 +127,6 @@ enum Command {
         skeleton: bool,
     },
     /// Show ranked files and symbols for compact code context.
-    #[command(alias = "repomap")]
     Context {
         /// File or directory to summarize.
         #[arg(default_value = ".")]
@@ -151,10 +149,6 @@ enum Command {
         #[command(subcommand)]
         action: Option<ModelAction>,
     },
-    /// Start MCP server (JSON-RPC over stdio).
-    Mcp,
-    /// Install og as MCP server in Claude Code.
-    InstallClaudeCode,
 }
 
 #[derive(Subcommand)]
@@ -188,8 +182,6 @@ pub fn run() -> anyhow::Result<()> {
             Some(ModelAction::Install) => model::install(),
             None => model::status(),
         },
-        Some(Command::Mcp) => mcp::run(),
-        Some(Command::InstallClaudeCode) => mcp::install_claude_code(),
         None if cli.query.is_none() => {
             use clap::CommandFactory;
             Cli::command().print_help()?;

@@ -59,7 +59,6 @@ og context [path]              # Show ranked file/symbol context
 og status [path]               # Show index info
 og list [path]                 # List all indexes under path
 og clean [path]                # Delete index
-og mcp                         # Start MCP server (JSON-RPC over stdio)
 
 # Options
 og -n 5 "error handling" .     # Limit to 5 results

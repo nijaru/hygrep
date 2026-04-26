@@ -374,16 +374,6 @@ fn context_json_output() {
 }
 
 #[test]
-fn repomap_alias_runs_context() {
-    let tmp = build_fixture_index();
-
-    og().args(["repomap", "-n", "1", tmp.path().to_str().unwrap()])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("score:"));
-}
-
-#[test]
 fn context_scope_excludes_sibling_directory() {
     let tmp = TempDir::new().unwrap();
     std::fs::create_dir_all(tmp.path().join("src/cli")).unwrap();

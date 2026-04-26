@@ -4,7 +4,7 @@
 
 ### Added
 
-- `og context <file|dir>` — show ranked file and symbol context from the existing index. Supports `--json`, `--skeleton`, `-n`, `--symbols`, and the `repomap` alias.
+- `og context <file|dir>` — show ranked file and symbol context from the existing index. Supports `--json`, `--skeleton`, `-n`, and `--symbols`.
 - `--highlight` — highlight query-related tokens in default terminal preview output without changing JSON/files-only output.
 - Migration to Rust Edition 2024.
 - High-performance zero-copy indexing using `into_par_iter` to reduce string allocations.
@@ -53,5 +53,4 @@ Initial release.
 - File references: `file#name`, `file:line`
 - Index hierarchy: build checks parent, merges subdirs
 - Auto-update: mtime pre-check before each search
-- MCP server (`og mcp`) with `og_search`, `og_similar`, `og_status` tools
 - Code-aware ranking boosts
