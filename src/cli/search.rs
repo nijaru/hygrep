@@ -90,16 +90,17 @@ pub fn run(params: &SearchParams) -> Result<()> {
         let metadata = walker::scan_metadata(&index_root)?;
         let (stale_count, stats) = index.check_and_update(&metadata)?;
 
-        if stale_count > 0 && !params.quiet {
-            if let Some(stats) = &stats {
-                if stats.blocks > 0 {
-                    eprintln!(
-                        "Updating {stale_count} changed files... {} blocks",
-                        stats.blocks
-                    );
-                } else {
-                    eprintln!("Updating {stale_count} changed files... done");
-                }
+        if stale_count > 0
+            && !params.quiet
+            && let Some(stats) = &stats
+        {
+            if stats.blocks > 0 {
+                eprintln!(
+                    "Updating {stale_count} changed files... {} blocks",
+                    stats.blocks
+                );
+            } else {
+                eprintln!("Updating {stale_count} changed files... done");
             }
         }
     }
@@ -303,13 +304,13 @@ fn parse_file_reference(query: &str) -> Option<FileRef> {
     if let Some(colon_pos) = query.rfind(':') {
         let file_part = &query[..colon_pos];
         let line_part = &query[colon_pos + 1..];
-        if let Ok(line) = line_part.parse::<usize>() {
-            if Path::new(file_part).exists() {
-                return Some(FileRef::ByLine {
-                    path: file_part.to_string(),
-                    line,
-                });
-            }
+        if let Ok(line) = line_part.parse::<usize>()
+            && Path::new(file_part).exists()
+        {
+            return Some(FileRef::ByLine {
+                path: file_part.to_string(),
+                line,
+            });
         }
     }
 

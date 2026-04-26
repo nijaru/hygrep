@@ -65,17 +65,18 @@ pub fn boost_results(results: &mut [SearchResult], query: &str) {
         // 2. Content match (NL queries only)
         // Count how many query terms appear in the block content. Functions whose body/docstring
         // contains most query terms are likely the semantically correct result.
-        if !is_code_query && !query_set.is_empty() {
-            if let Some(content) = &r.content {
-                let content_lower = content.to_lowercase();
-                let matching = query_set
-                    .iter()
-                    .filter(|&&t| content_lower.contains(t))
-                    .count();
-                if matching > 0 {
-                    let ratio = matching as f64 / query_set.len() as f64;
-                    boost *= 1.0 + ratio; // up to 2.0x at full match
-                }
+        if !is_code_query
+            && !query_set.is_empty()
+            && let Some(content) = &r.content
+        {
+            let content_lower = content.to_lowercase();
+            let matching = query_set
+                .iter()
+                .filter(|&&t| content_lower.contains(t))
+                .count();
+            if matching > 0 {
+                let ratio = matching as f64 / query_set.len() as f64;
+                boost *= 1.0 + ratio; // up to 2.0x at full match
             }
         }
 

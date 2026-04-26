@@ -48,13 +48,13 @@ impl Extractor {
         }
 
         // Ensure parser is initialized for this extension
-        if !self.parsers.contains_key(&ext) {
-            if let Some(language) = get_language(&ext) {
-                let mut parser = Parser::new();
-                parser.set_language(&language)?;
-                let query = get_query_source(&ext).and_then(|qs| Query::new(&language, qs).ok());
-                self.parsers.insert(ext.clone(), (parser, language, query));
-            }
+        if !self.parsers.contains_key(&ext)
+            && let Some(language) = get_language(&ext)
+        {
+            let mut parser = Parser::new();
+            parser.set_language(&language)?;
+            let query = get_query_source(&ext).and_then(|qs| Query::new(&language, qs).ok());
+            self.parsers.insert(ext.clone(), (parser, language, query));
         }
 
         let Some((parser, _language, query)) = self.parsers.get_mut(&ext) else {
@@ -85,7 +85,10 @@ impl Extractor {
                 }
 
                 let name = extract_name(&node, content_bytes);
-                let node_text = node.utf8_text(content_bytes).unwrap_or_default().to_string();
+                let node_text = node
+                    .utf8_text(content_bytes)
+                    .unwrap_or_default()
+                    .to_string();
 
                 let capture_name = query.capture_names()[capture.index as usize];
                 let block_type = capture_name;
@@ -93,7 +96,8 @@ impl Extractor {
                 let start_line = node.start_position().row;
                 let end_line = node.end_position().row;
 
-                let skeleton = extract_skeleton(&node, content_bytes).unwrap_or_else(|| node_text.clone());
+                let skeleton =
+                    extract_skeleton(&node, content_bytes).unwrap_or_else(|| node_text.clone());
 
                 blocks.push(Block {
                     id: Block::make_id(rel_path, start_line, &name),
@@ -198,12 +202,11 @@ fn extract_name(node: &tree_sitter::Node, source: &[u8]) -> String {
 
     // Search direct children
     for i in 0..node.child_count() {
-        if let Some(child) = node.child(i) {
-            if name_types.contains(&child.kind()) {
-                if let Ok(text) = child.utf8_text(source) {
-                    return text.to_string();
-                }
-            }
+        if let Some(child) = node.child(i)
+            && name_types.contains(&child.kind())
+            && let Ok(text) = child.utf8_text(source)
+        {
+            return text.to_string();
         }
     }
 
@@ -211,12 +214,11 @@ fn extract_name(node: &tree_sitter::Node, source: &[u8]) -> String {
     for i in 0..node.child_count() {
         if let Some(child) = node.child(i) {
             for j in 0..child.child_count() {
-                if let Some(grandchild) = child.child(j) {
-                    if name_types.contains(&grandchild.kind()) {
-                        if let Ok(text) = grandchild.utf8_text(source) {
-                            return text.to_string();
-                        }
-                    }
+                if let Some(grandchild) = child.child(j)
+                    && name_types.contains(&grandchild.kind())
+                    && let Ok(text) = grandchild.utf8_text(source)
+                {
+                    return text.to_string();
                 }
             }
         }
@@ -252,9 +254,7 @@ fn extract_skeleton(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
         }
     }
 
-    let Some(body) = body_node else {
-        return None;
-    };
+    let body = body_node?;
 
     let start_byte = node.start_byte();
     let body_start = body.start_byte();
@@ -263,7 +263,7 @@ fn extract_skeleton(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
 
     let mut skeleton = Vec::new();
     skeleton.extend_from_slice(&source[start_byte..body_start]);
-    
+
     let body_text = body.utf8_text(source).unwrap_or("");
     if body_text.starts_with('{') && body_text.ends_with('}') {
         skeleton.extend_from_slice(b"{ ... }");

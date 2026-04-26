@@ -15,10 +15,10 @@ pub fn print_results(
         .iter()
         .map(|r| {
             let mut r = r.clone();
-            if let Some(root) = root {
-                if let Ok(rel) = Path::new(&r.file).strip_prefix(root) {
-                    r.file = rel.to_string_lossy().into_owned();
-                }
+            if let Some(root) = root
+                && let Ok(rel) = Path::new(&r.file).strip_prefix(root)
+            {
+                r.file = rel.to_string_lossy().into_owned();
             }
             r
         })
@@ -99,22 +99,22 @@ fn print_default(
             );
         }
 
-        if context_lines > 0 {
-            if let Some(content) = &r.content {
-                let preview_lines: Vec<&str> = content
-                    .lines()
-                    .filter(|l| !l.trim().is_empty())
-                    .take(context_lines)
-                    .collect();
-                for line in preview_lines {
-                    if let Some(terms) = &highlight_terms {
-                        println!("  {}", highlight_line(line, terms));
-                    } else {
-                        println!("  {}", line.dimmed());
-                    }
+        if context_lines > 0
+            && let Some(content) = &r.content
+        {
+            let preview_lines: Vec<&str> = content
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .take(context_lines)
+                .collect();
+            for line in preview_lines {
+                if let Some(terms) = &highlight_terms {
+                    println!("  {}", highlight_line(line, terms));
+                } else {
+                    println!("  {}", line.dimmed());
                 }
-                println!();
             }
+            println!();
         }
     }
 }
