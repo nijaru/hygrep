@@ -124,6 +124,7 @@ fn search_hybrid(bencher: Bencher) {
                 black_box(&token_refs),
                 black_box(10),
                 None,
+                false,
             )
             .unwrap();
         black_box(results);
