@@ -96,6 +96,13 @@ Cargo.toml
 | Smoke  | `og "test" ./src`                | Returns results |
 | Lint   | `cargo clippy`                   | No warnings     |
 
+## Public Docs and Benchmarks
+
+- Public docs may compare `og` to grep/ripgrep as exact-string baselines.
+- Do not publicly compare, rank, or name other semantic/code search tools.
+- Public benchmarks must report `og` only: dataset, environment, methodology, raw results, index size, throughput, and latency.
+- Local comparisons against other public tools are allowed for private product judgment, but do not publish those results or tool names.
+
 ## Key Behaviors
 
 - `OG_AUTO_BUILD=1` — auto-build index on search if missing

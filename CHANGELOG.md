@@ -8,8 +8,8 @@
 - High-performance zero-copy indexing using `into_par_iter` to reduce string allocations.
 - Optimized Tree-sitter extraction with direct UTF-8 text access.
 - Improved fallback indexing for large/unparseable files using byte-indexed line limits.
-- **Performance:** Parallelized `ignore::WalkBuilder` for massive speedup during file scanning.
-- **Performance:** Parallelized hybrid search (BM25 and MaxSim run concurrently via `rayon::join`), halving search latency on multi-core CPUs.
+- **Performance:** Parallelized `ignore::WalkBuilder` during file scanning.
+- **Performance:** Parallelized hybrid search (BM25 and MaxSim run concurrently via `rayon::join`) on multi-core CPUs.
 - **UX:** Integrated `indicatif` spinner for clean, glitch-free progress reporting during `og build`.
 
 ### Changed
@@ -28,7 +28,7 @@
 
 ### Changed
 
-- `--no-content` replaces `--compact/-c` (avoids ambiguity with ColGrep's `-c` flag).
+- `--no-content` replaces `--compact/-c`.
 - `--threshold` is now the primary flag; `--min-score` alias removed (v0.0.x, no compatibility obligation).
 - `doc_max_length` bumped from 512 to 1024 tokens — large functions no longer truncated. Model supports up to 2048.
 
