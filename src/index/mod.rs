@@ -1,11 +1,11 @@
 pub mod manifest;
 pub mod walker;
 
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use rayon::prelude::*;
 
 use crate::embedder::{self, Embedder};
@@ -32,6 +32,8 @@ const INDEX_FLUSH_INTERVAL_BLOCKS: usize = 20_000;
 /// so a large queue mostly increases memory without improving throughput.
 const EXTRACTION_QUEUE_BOUND: usize = 64;
 
+type ProgressFn = dyn Fn(usize, usize, &str);
+
 /// Manages semantic search index using omendb.
 pub struct SemanticIndex {
     root: PathBuf,
@@ -39,6 +41,11 @@ pub struct SemanticIndex {
     vectors_path: String,
     search_scope: Option<String>,
     embedder: Box<dyn Embedder>,
+}
+
+struct PreparedBlock {
+    text: String,
+    block: Block,
 }
 
 impl SemanticIndex {
@@ -76,13 +83,65 @@ impl SemanticIndex {
         })
     }
 
+    fn embed_batch(
+        &self,
+        batch: &mut Vec<PreparedBlock>,
+        store: &mut omendb::VectorStore,
+        stats: &mut IndexStats,
+        pending_store_ops: &mut usize,
+    ) -> Result<()> {
+        if batch.is_empty() {
+            return Ok(());
+        }
+
+        // Sort by text length for better padding efficiency in ONNX
+        batch.sort_by_key(|p| p.text.len());
+
+        let texts: Vec<&str> = batch.iter().map(|p| p.text.as_str()).collect();
+        let token_embeddings = self.embedder.embed_documents(&texts)?;
+
+        for (idx, token_emb) in token_embeddings.embeddings.iter().enumerate() {
+            let p = &batch[idx];
+
+            let tokens: Vec<Vec<f32>> = token_emb
+                .rows()
+                .into_iter()
+                .take(embedder::MAX_STORED_TOKENS)
+                .map(|r| r.to_vec())
+                .collect();
+
+            let metadata = serde_json::json!({
+                "file": p.block.file,
+                "type": p.block.block_type,
+                "name": p.block.name,
+                "start_line": p.block.start_line,
+                "end_line": p.block.end_line,
+                "content": p.block.content,
+                "skeleton": p.block.skeleton,
+            });
+
+            let bm25_text = split_identifiers(&p.text);
+            store.store_with_text(&p.block.id, tokens, &bm25_text, metadata)?;
+            stats.blocks += 1;
+            *pending_store_ops += 1;
+
+            if *pending_store_ops >= INDEX_FLUSH_INTERVAL_BLOCKS {
+                store.flush()?;
+                *pending_store_ops = 0;
+            }
+        }
+
+        batch.clear();
+        Ok(())
+    }
+
     /// Build index from scanned files. Each entry is (content, mtime) where
     /// mtime was captured before reading content to avoid race conditions.
     #[allow(clippy::type_complexity)]
     pub fn index(
         &self,
         files: &HashMap<PathBuf, (String, u64)>,
-        on_progress: Option<&dyn Fn(usize, usize, &str)>,
+        on_progress: Option<&ProgressFn>,
     ) -> Result<IndexStats> {
         assert!(files.len() <= 10_000_000, "index: max files bound");
         assert!(
@@ -142,66 +201,10 @@ impl SemanticIndex {
 
         let to_process_len = to_process.len();
 
-        // Consumer thread (main thread) handles batching and embedding
-        struct PreparedBlock {
-            text: String,
-            block: Block,
-        }
-
         let mut batch_buffer: Vec<PreparedBlock> = Vec::new();
         let batch_size = embedder::MODEL.batch_size;
         let mut processed_files = 0;
         let mut pending_store_ops = 0usize;
-
-        let embed_batch = |batch: &mut Vec<PreparedBlock>,
-                           store: &mut omendb::VectorStore,
-                           stats: &mut IndexStats,
-                           pending_store_ops: &mut usize|
-         -> Result<()> {
-            if batch.is_empty() {
-                return Ok(());
-            }
-
-            // Sort by text length for better padding efficiency in ONNX
-            batch.sort_by_key(|p| p.text.len());
-
-            let texts: Vec<&str> = batch.iter().map(|p| p.text.as_str()).collect();
-            let token_embeddings = self.embedder.embed_documents(&texts)?;
-
-            for (idx, token_emb) in token_embeddings.embeddings.iter().enumerate() {
-                let p = &batch[idx];
-
-                let tokens: Vec<Vec<f32>> = token_emb
-                    .rows()
-                    .into_iter()
-                    .take(embedder::MAX_STORED_TOKENS)
-                    .map(|r| r.to_vec())
-                    .collect();
-
-                let metadata = serde_json::json!({
-                    "file": p.block.file,
-                    "type": p.block.block_type,
-                    "name": p.block.name,
-                    "start_line": p.block.start_line,
-                    "end_line": p.block.end_line,
-                    "content": p.block.content,
-                    "skeleton": p.block.skeleton,
-                });
-
-                let bm25_text = split_identifiers(&p.text);
-                store.store_with_text(&p.block.id, tokens, &bm25_text, metadata)?;
-                stats.blocks += 1;
-                *pending_store_ops += 1;
-
-                if *pending_store_ops >= INDEX_FLUSH_INTERVAL_BLOCKS {
-                    store.flush()?;
-                    *pending_store_ops = 0;
-                }
-            }
-
-            batch.clear();
-            Ok(())
-        };
 
         std::thread::scope(|s| {
             // Spawn producer thread for parallel extraction
@@ -256,7 +259,7 @@ impl SemanticIndex {
                     batch_buffer.push(PreparedBlock { text, block });
 
                     if batch_buffer.len() >= batch_size {
-                        embed_batch(
+                        self.embed_batch(
                             &mut batch_buffer,
                             &mut store,
                             &mut stats,
@@ -267,7 +270,135 @@ impl SemanticIndex {
             }
 
             // Flush remaining items
-            embed_batch(
+            self.embed_batch(
+                &mut batch_buffer,
+                &mut store,
+                &mut stats,
+                &mut pending_store_ops,
+            )?;
+            store.flush()?;
+            manifest.save(&self.index_dir)?;
+
+            if let Some(progress) = on_progress {
+                progress(to_process_len, to_process_len, "Done");
+            }
+
+            Ok::<(), anyhow::Error>(())
+        })?;
+
+        Ok(stats)
+    }
+
+    /// Build index from file metadata, reading content inside the extraction
+    /// pipeline instead of retaining every file body before indexing starts.
+    pub fn index_paths(
+        &self,
+        files: &HashMap<PathBuf, walker::FileMetadata>,
+        on_progress: Option<&ProgressFn>,
+    ) -> Result<IndexStats> {
+        assert!(files.len() <= 10_000_000, "index_paths: max files bound");
+        assert!(
+            self.index_dir.components().count() > 0,
+            "index_paths: valid index_dir"
+        );
+
+        std::fs::create_dir_all(&self.index_dir)?;
+        let mut manifest = Manifest::load(&self.index_dir)?;
+        manifest.model = embedder::MODEL.version.to_string();
+        let mut stats = IndexStats::default();
+
+        let mut store = self.open_or_create_store()?;
+        store.enable_text_search()?;
+        store.flush()?;
+
+        let to_process: Vec<(PathBuf, u64)> = files
+            .iter()
+            .map(|(path, &(_size, mtime))| (path.clone(), mtime))
+            .collect();
+
+        if to_process.is_empty() {
+            return Ok(stats);
+        }
+
+        let root = self.root.clone();
+        let to_process_len = to_process.len();
+        let (tx, rx) = std::sync::mpsc::sync_channel::<(Vec<Block>, String, String, u64)>(
+            EXTRACTION_QUEUE_BOUND,
+        );
+
+        let mut batch_buffer: Vec<PreparedBlock> = Vec::new();
+        let batch_size = embedder::MODEL.batch_size;
+        let mut processed_files = 0;
+        let mut pending_store_ops = 0usize;
+
+        std::thread::scope(|s| {
+            s.spawn(move || {
+                to_process.into_par_iter().for_each_init(
+                    Extractor::new,
+                    |extractor, (path, mtime)| {
+                        let rel_path = relative_to(&root, &path);
+                        let Some((content, mtime)) = walker::read_text(&path, mtime) else {
+                            let _ = tx.send((Vec::new(), rel_path, String::new(), mtime));
+                            return;
+                        };
+
+                        let file_hash = hash_content(&content);
+                        let blocks = extractor.extract(&rel_path, &content).unwrap_or_default();
+                        let _ = tx.send((blocks, rel_path, file_hash, mtime));
+                    },
+                );
+            });
+
+            for (blocks, rel_path, file_hash, mtime) in rx {
+                processed_files += 1;
+
+                if let Some(progress) = on_progress {
+                    progress(
+                        processed_files,
+                        to_process_len,
+                        &format!("Processing {}/{}", processed_files, to_process_len),
+                    );
+                }
+
+                if blocks.is_empty() {
+                    stats.errors += 1;
+                    manifest.files.insert(
+                        rel_path.clone(),
+                        FileEntry {
+                            hash: file_hash.clone(),
+                            blocks: Vec::new(),
+                            mtime,
+                        },
+                    );
+                    continue;
+                }
+
+                stats.files += 1;
+                manifest.files.insert(
+                    rel_path.clone(),
+                    FileEntry {
+                        hash: file_hash.clone(),
+                        blocks: blocks.iter().map(|b| b.id.clone()).collect(),
+                        mtime,
+                    },
+                );
+
+                for block in blocks {
+                    let text = block.embedding_text();
+                    batch_buffer.push(PreparedBlock { text, block });
+
+                    if batch_buffer.len() >= batch_size {
+                        self.embed_batch(
+                            &mut batch_buffer,
+                            &mut store,
+                            &mut stats,
+                            &mut pending_store_ops,
+                        )?;
+                    }
+                }
+            }
+
+            self.embed_batch(
                 &mut batch_buffer,
                 &mut store,
                 &mut stats,
@@ -910,4 +1041,11 @@ fn find_block_by_line(
 fn hash_content(content: &str) -> String {
     let hash = blake3::hash(content.as_bytes());
     hash.to_hex()[..16].to_string()
+}
+
+fn relative_to(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .into_owned()
 }

@@ -31,7 +31,7 @@ pub const MODEL: &ModelConfig = &ModelConfig {
     doc_max_length: 1024,
     query_max_length: 256,
     version: "lateon-code-edge-v1",
-    batch_size: 32,
+    batch_size: 16,
 };
 
 /// Embedding output: variable-length token embeddings per document.

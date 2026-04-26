@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use anyhow::Result;
 
-use crate::index::{self, walker, SemanticIndex};
+use crate::index::{self, SemanticIndex, walker};
 use crate::types::EXIT_ERROR;
 
 pub fn run(path: &Path, force: bool, quiet: bool) -> Result<()> {
@@ -118,7 +118,7 @@ pub fn build_index(path: &Path, quiet: bool) -> Result<()> {
     if !quiet {
         eprint!("Scanning files...");
     }
-    let files = walker::scan(path)?;
+    let files = walker::scan_metadata(path)?;
     if !quiet {
         eprintln!("\r                 \r");
     }
@@ -162,17 +162,17 @@ pub fn build_index(path: &Path, quiet: bool) -> Result<()> {
         p.set_message("Extracting and embedding blocks...");
     }
 
-    let stats = index.index(
+    let stats = index.index_paths(
         &files,
         progress_fn
             .as_ref()
             .map(|f| f as &dyn Fn(usize, usize, &str)),
     )?;
-    
+
     if let Some(p) = pb {
         p.finish_and_clear();
     }
-    
+
     let elapsed = t0.elapsed();
 
     if !quiet {

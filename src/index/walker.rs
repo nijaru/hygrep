@@ -232,6 +232,19 @@ pub fn file_mtime(path: &Path) -> u64 {
         .unwrap_or(0)
 }
 
+/// Read a text file using an already-captured mtime.
+pub fn read_text(path: &Path, mtime: u64) -> Option<(String, u64)> {
+    let raw = std::fs::read(path).ok()?;
+
+    // Binary detection: null byte in first 8192 bytes
+    let check_len = raw.len().min(8192);
+    if raw[..check_len].contains(&0) {
+        return None;
+    }
+
+    String::from_utf8(raw).ok().map(|content| (content, mtime))
+}
+
 /// Scan directory tree for text files, returning path -> (content, mtime).
 /// mtime is captured before reading content so it's never newer than what was read.
 pub fn scan(root: &Path) -> Result<HashMap<PathBuf, (String, u64)>> {
@@ -266,23 +279,11 @@ pub fn scan(root: &Path) -> Result<HashMap<PathBuf, (String, u64)>> {
             // Stat before read so mtime is never newer than the content we index
             let mtime = file_mtime(path);
 
-            let raw = match std::fs::read(path) {
-                Ok(data) => data,
-                Err(_) => return WalkState::Continue,
-            };
-
-            // Binary detection: null byte in first 8192 bytes
-            let check_len = raw.len().min(8192);
-            if raw[..check_len].contains(&0) {
+            let Some(data) = read_text(path, mtime) else {
                 return WalkState::Continue;
-            }
-
-            let content = match String::from_utf8(raw) {
-                Ok(s) => s,
-                Err(_) => return WalkState::Continue,
             };
 
-            let _ = tx.send((path.to_path_buf(), (content, mtime)));
+            let _ = tx.send((path.to_path_buf(), data));
             WalkState::Continue
         })
     });
