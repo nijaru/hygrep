@@ -25,8 +25,8 @@ const DOC_BLOCK_TYPES: &[&str] = &["text", "section"];
 /// When search scope filters results, over-fetch by this factor to compensate.
 const SCOPE_OVERFETCH: usize = 5;
 
-/// Keep omendb's WAL below its auto-checkpoint threshold during bulk indexing.
-const INDEX_FLUSH_INTERVAL_BLOCKS: usize = 1_000;
+/// Bound WAL growth during bulk indexing without forcing tiny checkpoint batches.
+const INDEX_FLUSH_INTERVAL_BLOCKS: usize = 20_000;
 
 /// Manages semantic search index using omendb.
 pub struct SemanticIndex {

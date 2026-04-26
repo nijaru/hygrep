@@ -77,7 +77,7 @@ Cargo.toml
 | ------------ | ------------------------ | ------------------------------------- |
 | Rust         | nightly-2025-12-04       | Required for omendb (portable_simd)   |
 | ort          | 2.0.0-rc.11              | ONNX Runtime inference                |
-| omendb       | 0.0.36                  | Multi-vector + BM25 hybrid search     |
+| omendb       | 0.0.37                  | Multi-vector + BM25 hybrid search     |
 | tree-sitter  | 0.25                     | AST parsing (25 languages)            |
 | Embeddings   | LateOn-Code-edge INT8    | 17M params, 48d/token, ~17MB          |
 
